@@ -197,13 +197,21 @@
           style="width:90px;border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 10px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
         <input id="codeImages" type="number" placeholder="Ảnh" min="0" value="5"
           style="width:70px;border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 10px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
+        <input id="codeMaxUses" type="number" placeholder="Lượt" min="1" value="1" title="Tối đa bao nhiêu người dùng được kích hoạt mã này"
+          style="width:70px;border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 10px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
       </div>
-      <input id="codeNote" type="text" placeholder="Ghi chú (vd: Nguyễn Văn A - 20k)"
+      <div style="display:flex;gap:6px;font-size:11px;color:#888;">
+        <span style="width:90px;text-align:center;">Câu hỏi/người</span>
+        <span style="width:70px;text-align:center;">Ảnh/người</span>
+        <span style="width:70px;text-align:center;">Số người dùng</span>
+      </div>
+      <input id="codeNote" type="text" placeholder="Ghi chú (vd: Gói 20k - bán tháng 3)"
         style="border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillCode('PLUS30',30,5,'Gói 30 câu')">Mẫu: Gói nhỏ</button>
-      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillCode('VIP100',100,20,'Gói 100 câu')">Mẫu: Gói lớn</button>
+      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillCode('PLUS30',30,5,1,'Gói 30 câu - 1 người')">Mẫu: 1 người</button>
+      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillCode('NHOM10',30,5,10,'Gói nhóm 10 người')">Mẫu: nhóm 10</button>
+      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillCode('VIP100',100,20,1,'Gói VIP')">Mẫu: VIP</button>
     </div>
     <button class="btn" onclick="createCode()">➕ Tạo mã</button>
     <div id="codeResult" style="margin-top:10px;font-size:13px;"></div>
@@ -442,10 +450,11 @@
   checkPushEnabled();
   loadCodes();
 
-  function fillCode(code, requests, images, note) {
+  function fillCode(code, requests, images, maxUses, note) {
     document.getElementById('codeInput').value    = code;
     document.getElementById('codeRequests').value = requests;
     document.getElementById('codeImages').value   = images;
+    document.getElementById('codeMaxUses').value  = maxUses;
     document.getElementById('codeNote').value     = note;
   }
 
@@ -453,13 +462,14 @@
     const code     = document.getElementById('codeInput').value.trim().toUpperCase();
     const requests = parseInt(document.getElementById('codeRequests').value) || 0;
     const images   = parseInt(document.getElementById('codeImages').value) || 0;
+    const max_uses = parseInt(document.getElementById('codeMaxUses').value) || 1;
     const note     = document.getElementById('codeNote').value.trim();
     const result   = document.getElementById('codeResult');
     if (!code || requests < 1) { alert('Nhập mã và số câu hỏi'); return; }
     const res  = await fetch('/admin/premium-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, requests, images, note }),
+      body: JSON.stringify({ code, requests, images, max_uses, note }),
     });
     const data = await res.json();
     if (data.ok) {
@@ -475,15 +485,24 @@
     const data = await res.json();
     const list = document.getElementById('codeList');
     if (!data.codes.length) { list.innerHTML = '<div class="empty">Chưa có mã nào</div>'; return; }
-    list.innerHTML = data.codes.map(c => `
+    list.innerHTML = data.codes.map(c => {
+      const full = c.used_count >= c.max_uses;
+      const statusBg = full ? '#ffebee' : (c.used_count > 0 ? '#fff8e1' : '#e8f5e9');
+      const statusColor = full ? '#ef5350' : (c.used_count > 0 ? '#f57c00' : '#2e7d32');
+      const statusText = full ? 'Hết lượt' : (c.used_count > 0 ? `${c.used_count}/${c.max_uses} lượt` : 'Chưa dùng');
+      const ips = c.redemptions.map(r =>
+        `<div style="font-size:11px;color:#aaa;padding-left:4px;">· ${r.ip} <span style="color:#bbb;">${r.ts}</span></div>`
+      ).join('');
+      return `
       <div class="doc-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
         <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
           <span style="font-size:15px;font-weight:700;font-family:monospace;color:#1b5e20;">${c.code}</span>
-          <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${c.used_by ? '#ffebee' : '#e8f5e9'};color:${c.used_by ? '#ef5350' : '#2e7d32'};">${c.used_by ? 'Đã dùng' : 'Chưa dùng'}</span>
+          <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${statusBg};color:${statusColor};">${statusText}</span>
         </div>
-        <div style="font-size:12px;color:#555;">+${c.requests} câu hỏi · +${c.images} ảnh${c.note ? ' · ' + c.note : ''}</div>
-        ${c.used_by ? `<div style="font-size:11px;color:#aaa;">IP: ${c.used_by} · ${c.used_at}</div>` : ''}
-      </div>`).join('');
+        <div style="font-size:12px;color:#555;">+${c.requests} câu hỏi · +${c.images} ảnh · tối đa ${c.max_uses} người${c.note ? ' · ' + c.note : ''}</div>
+        ${ips}
+      </div>`;
+    }).join('');
   }
 
   async function checkPushEnabled() {

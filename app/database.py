@@ -34,10 +34,19 @@ def init_db() -> None:
                 code       TEXT    PRIMARY KEY,
                 requests   INTEGER NOT NULL,
                 images     INTEGER NOT NULL DEFAULT 0,
-                used_by    TEXT    DEFAULT '',
-                used_at    TEXT    DEFAULT '',
+                max_uses   INTEGER NOT NULL DEFAULT 1,
+                used_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT    NOT NULL,
                 note       TEXT    DEFAULT ''
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS code_redemptions (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                code    TEXT NOT NULL,
+                ip      TEXT NOT NULL,
+                ts      TEXT NOT NULL,
+                UNIQUE(code, ip)
             )
         """)
         conn.execute("""
@@ -73,19 +82,30 @@ def get_conn():
 
 
 def redeem_code(code: str, ip: str) -> dict:
-    """Đổi mã premium. Trả về {"ok": True/False, "reason": ..., "requests": n, "images": n}"""
+    """Đổi mã premium. Mỗi IP chỉ dùng 1 mã 1 lần, mã có giới hạn max_uses lượt."""
+    from datetime import datetime
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT requests, images, used_by FROM premium_codes WHERE code=?", (code.upper(),)
+            "SELECT requests, images, max_uses, used_count FROM premium_codes WHERE code=?",
+            (code.upper(),)
         ).fetchone()
         if not row:
             return {"ok": False, "reason": "Mã không hợp lệ"}
-        if row["used_by"]:
-            return {"ok": False, "reason": "Mã đã được sử dụng"}
-        from datetime import datetime
+        if row["used_count"] >= row["max_uses"]:
+            return {"ok": False, "reason": "Mã đã hết lượt sử dụng"}
+        # Kiểm tra IP này đã dùng mã này chưa
+        already = conn.execute(
+            "SELECT 1 FROM code_redemptions WHERE code=? AND ip=?", (code.upper(), ip)
+        ).fetchone()
+        if already:
+            return {"ok": False, "reason": "Bạn đã kích hoạt mã này rồi"}
+        # Ghi nhận lượt dùng
         conn.execute(
-            "UPDATE premium_codes SET used_by=?, used_at=? WHERE code=?",
-            (ip, datetime.now().isoformat(timespec="seconds"), code.upper()),
+            "UPDATE premium_codes SET used_count=used_count+1 WHERE code=?", (code.upper(),)
+        )
+        conn.execute(
+            "INSERT INTO code_redemptions (code, ip, ts) VALUES (?,?,?)",
+            (code.upper(), ip, datetime.now().isoformat(timespec="seconds")),
         )
         conn.execute("""
             INSERT INTO premium_quota (ip, requests, images) VALUES (?, ?, ?)
@@ -127,13 +147,13 @@ def consume_premium(ip: str, is_image: bool = False) -> bool:
     return True
 
 
-def create_premium_code(code: str, requests: int, images: int, note: str = "") -> bool:
+def create_premium_code(code: str, requests: int, images: int, max_uses: int = 1, note: str = "") -> bool:
     from datetime import datetime
     with get_conn() as conn:
         try:
             conn.execute(
-                "INSERT INTO premium_codes (code, requests, images, created_at, note) VALUES (?,?,?,?,?)",
-                (code.upper(), requests, images, datetime.now().isoformat(timespec="seconds"), note),
+                "INSERT INTO premium_codes (code, requests, images, max_uses, created_at, note) VALUES (?,?,?,?,?,?)",
+                (code.upper(), requests, images, max_uses, datetime.now().isoformat(timespec="seconds"), note),
             )
             return True
         except Exception:
@@ -143,9 +163,18 @@ def create_premium_code(code: str, requests: int, images: int, note: str = "") -
 def list_premium_codes() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT code, requests, images, used_by, used_at, created_at, note FROM premium_codes ORDER BY created_at DESC"
+            "SELECT code, requests, images, max_uses, used_count, created_at, note FROM premium_codes ORDER BY created_at DESC"
         ).fetchall()
-    return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            # Lấy danh sách IP đã dùng mã này
+            ips = conn.execute(
+                "SELECT ip, ts FROM code_redemptions WHERE code=? ORDER BY ts DESC", (d["code"],)
+            ).fetchall()
+            d["redemptions"] = [{"ip": row["ip"], "ts": row["ts"]} for row in ips]
+            result.append(d)
+    return result
 
 
 def save_push_subscription(ts: str, endpoint: str, p256dh: str, auth: str) -> None:

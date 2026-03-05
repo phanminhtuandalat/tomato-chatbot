@@ -4,9 +4,10 @@ Entry point — khởi tạo app và mount routers.
 
 import logging
 import os
+import uuid
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -43,8 +44,17 @@ async def startup():
 
 
 @app.get("/")
-async def index():
-    return FileResponse("static/index.html")
+async def index(request: Request):
+    resp = FileResponse("static/index.html")
+    if not request.cookies.get("did"):
+        resp.set_cookie(
+            "did",
+            str(uuid.uuid4()),
+            max_age=365 * 24 * 3600,  # 1 năm
+            httponly=True,
+            samesite="lax",
+        )
+    return resp
 
 
 @app.get("/health")
