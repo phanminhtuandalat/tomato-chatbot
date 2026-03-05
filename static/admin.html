@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — Quản lý tài liệu</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #f0f4f0; min-height: 100vh;
+      padding: 24px 16px;
+    }
+    .container { max-width: 680px; margin: 0 auto; }
+    h1 { font-size: 22px; color: #1b5e20; margin-bottom: 4px; }
+    .subtitle { color: #666; font-size: 14px; margin-bottom: 28px; }
+
+    .card {
+      background: white; border-radius: 16px;
+      padding: 24px; margin-bottom: 20px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    }
+    .card h2 { font-size: 16px; color: #2e7d32; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+    /* Upload vùng kéo thả */
+    .drop-zone {
+      border: 2px dashed #a5d6a7; border-radius: 12px;
+      padding: 36px 20px; text-align: center;
+      cursor: pointer; transition: all 0.2s;
+      background: #f9fbe7;
+    }
+    .drop-zone:hover, .drop-zone.drag { border-color: #2e7d32; background: #e8f5e9; }
+    .drop-zone p { color: #555; font-size: 14px; margin-top: 8px; }
+    .drop-zone .icon { font-size: 40px; }
+    .drop-zone input { display: none; }
+
+    /* URL input */
+    .url-row { display: flex; gap: 10px; }
+    .url-row input {
+      flex: 1; border: 1.5px solid #c8e6c9; border-radius: 10px;
+      padding: 10px 14px; font-size: 14px; font-family: inherit;
+      outline: none; background: #f9fbe7;
+    }
+    .url-row input:focus { border-color: #2e7d32; }
+
+    /* Nút */
+    .btn {
+      background: linear-gradient(135deg, #2e7d32, #43a047);
+      color: white; border: none; border-radius: 10px;
+      padding: 10px 20px; font-size: 14px; font-family: inherit;
+      font-weight: 600; cursor: pointer; transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { background: #a5d6a7; cursor: not-allowed; transform: none; }
+
+    /* Danh sách tài liệu */
+    .doc-list { display: flex; flex-direction: column; gap: 10px; }
+    .doc-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; background: #f9f9f9;
+      border-radius: 10px; border: 1px solid #e8e8e8;
+    }
+    .doc-icon { font-size: 22px; flex-shrink: 0; }
+    .doc-info { flex: 1; min-width: 0; }
+    .doc-name { font-size: 14px; font-weight: 600; color: #212121; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .doc-meta { font-size: 12px; color: #888; margin-top: 2px; }
+    .doc-delete {
+      background: none; border: none; color: #bbb;
+      cursor: pointer; font-size: 18px; padding: 4px;
+      transition: color 0.15s; flex-shrink: 0;
+    }
+    .doc-delete:hover { color: #ef5350; }
+
+    /* Log */
+    .log {
+      background: #1a1a2e; color: #69f0ae;
+      border-radius: 10px; padding: 14px 16px;
+      font-family: monospace; font-size: 13px;
+      min-height: 60px; max-height: 160px;
+      overflow-y: auto; white-space: pre-wrap;
+      display: none;
+    }
+    .log.show { display: block; }
+
+    .back-link { display: inline-block; margin-bottom: 20px; color: #2e7d32; text-decoration: none; font-size: 14px; }
+    .back-link:hover { text-decoration: underline; }
+
+    .empty { color: #aaa; font-size: 14px; text-align: center; padding: 16px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <a href="/" class="back-link">← Quay lại chatbot</a>
+  <h1>🌿 Quản lý Knowledge Base</h1>
+  <p class="subtitle">Thêm tài liệu, bài viết, kinh nghiệm vào kho kiến thức của bot</p>
+
+  <!-- Upload file -->
+  <div class="card">
+    <h2>📄 Upload file</h2>
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <div class="icon">📂</div>
+      <p><strong>Bấm để chọn</strong> hoặc kéo thả file vào đây</p>
+      <p style="margin-top:6px; color:#aaa; font-size:13px;">Hỗ trợ: PDF, DOCX, TXT, MD</p>
+      <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md" onchange="uploadFile(event)" />
+    </div>
+  </div>
+
+  <!-- Thêm URL -->
+  <div class="card">
+    <h2>🔗 Thêm từ URL</h2>
+    <div class="url-row">
+      <input type="url" id="urlInput" placeholder="https://nongnghiep.vn/bai-viet-ve-ca-chua..." />
+      <button class="btn" onclick="uploadUrl()">Tải về</button>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="log" id="log"></div>
+
+  <!-- Danh sách tài liệu -->
+  <div class="card">
+    <h2>📚 Tài liệu trong kho (<span id="docCount">0</span>)</h2>
+    <div class="doc-list" id="docList">
+      <div class="empty">Đang tải...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const log = document.getElementById('log');
+
+  function writeLog(msg, color) {
+    log.classList.add('show');
+    log.textContent += (color === 'error' ? '✗ ' : '✓ ') + msg + '\n';
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // Kéo thả
+  const dropZone = document.getElementById('dropZone');
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag');
+    const file = e.dataTransfer.files[0];
+    if (file) sendFile(file);
+  });
+
+  async function uploadFile(e) {
+    const file = e.target.files[0];
+    if (file) await sendFile(file);
+    e.target.value = '';
+  }
+
+  async function sendFile(file) {
+    writeLog(`Đang upload: ${file.name}`);
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const res = await fetch('/admin/upload', { method: 'POST', body: form });
+      const data = await res.json();
+      if (data.ok) {
+        writeLog(`Đã thêm: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
+        loadDocs();
+      } else {
+        writeLog(data.error || 'Lỗi không xác định', 'error');
+      }
+    } catch { writeLog('Lỗi kết nối', 'error'); }
+  }
+
+  async function uploadUrl() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) return;
+    writeLog(`Đang tải URL: ${url}`);
+    try {
+      const res = await fetch('/admin/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        writeLog(`Đã thêm: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
+        document.getElementById('urlInput').value = '';
+        loadDocs();
+      } else {
+        writeLog(data.error || 'Lỗi không xác định', 'error');
+      }
+    } catch { writeLog('Lỗi kết nối', 'error'); }
+  }
+
+  async function deleteDoc(filename) {
+    if (!confirm(`Xoá tài liệu "${filename}"?`)) return;
+    const res = await fetch('/admin/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    });
+    const data = await res.json();
+    if (data.ok) { writeLog(`Đã xoá: ${filename}`); loadDocs(); }
+  }
+
+  const ICONS = { pdf: '📕', docx: '📘', txt: '📄', md: '📗', default: '📄' };
+
+  async function loadDocs() {
+    const res = await fetch('/admin/docs');
+    const data = await res.json();
+    const list = document.getElementById('docList');
+    document.getElementById('docCount').textContent = data.docs.length;
+
+    if (!data.docs.length) {
+      list.innerHTML = '<div class="empty">Chưa có tài liệu nào</div>';
+      return;
+    }
+
+    list.innerHTML = data.docs.map(d => {
+      const ext = d.name.split('.').pop();
+      const icon = ICONS[ext] || ICONS.default;
+      return `
+        <div class="doc-item">
+          <span class="doc-icon">${icon}</span>
+          <div class="doc-info">
+            <div class="doc-name">${d.name}</div>
+            <div class="doc-meta">${d.size_kb} KB · ${d.modified}</div>
+          </div>
+          <button class="doc-delete" onclick="deleteDoc('${d.name}')" title="Xoá">🗑</button>
+        </div>`;
+    }).join('');
+  }
+
+  loadDocs();
+</script>
+</body>
+</html>

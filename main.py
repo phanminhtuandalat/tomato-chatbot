@@ -7,9 +7,12 @@ import hmac
 import json
 import logging
 import os
+import importlib
+from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -33,9 +36,15 @@ ZALO_APP_SECRET = os.getenv("ZALO_APP_SECRET", "")
 # Web UI
 # ---------------------------------------------------------------------------
 
+DATA_DIR = Path(__file__).parent / "data"
+
 @app.get("/")
 async def index():
     return FileResponse("static/index.html")
+
+@app.get("/admin")
+async def admin():
+    return FileResponse("static/admin.html")
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +77,99 @@ async def api_chat(req: ChatRequest):
         answer = "Xin lỗi, hệ thống đang bận. Vui lòng thử lại sau hoặc gọi đường dây nóng khuyến nông: 1900-9008."
 
     return JSONResponse({"answer": answer})
+
+
+# ---------------------------------------------------------------------------
+# Admin API — quản lý knowledge base
+# ---------------------------------------------------------------------------
+
+def reload_kb():
+    """Reload knowledge base sau khi thêm/xoá tài liệu."""
+    import knowledge_base
+    importlib.reload(knowledge_base)
+    # Cập nhật reference trong module hiện tại
+    import sys
+    sys.modules["knowledge_base"] = knowledge_base
+
+
+@app.post("/admin/upload")
+async def admin_upload(file: UploadFile = File(...)):
+    ext = Path(file.filename).suffix.lower()
+    if ext not in (".pdf", ".docx", ".txt", ".md"):
+        return JSONResponse({"ok": False, "error": f"Định dạng {ext} không được hỗ trợ"})
+
+    raw = await file.read()
+    tmp_path = DATA_DIR / ("_tmp" + ext)
+    tmp_path.write_bytes(raw)
+
+    try:
+        from ingest import read_pdf, read_docx, read_txt, clean_text, save_to_knowledge_base, safe_filename
+        title = Path(file.filename).stem.replace("_", " ").replace("-", " ").title()
+        if ext == ".pdf":
+            content = read_pdf(str(tmp_path))
+        elif ext == ".docx":
+            content = read_docx(str(tmp_path))
+        else:
+            content = read_txt(str(tmp_path))
+
+        content = clean_text(content)
+        if len(content) < 100:
+            return JSONResponse({"ok": False, "error": "Nội dung quá ngắn"})
+
+        out = save_to_knowledge_base(title, content, file.filename)
+        reload_kb()
+        return JSONResponse({"ok": True, "filename": out.name, "chars": len(content)})
+    except Exception as e:
+        logger.error(e)
+        return JSONResponse({"ok": False, "error": str(e)})
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+class UrlRequest(BaseModel):
+    url: str
+
+@app.post("/admin/upload-url")
+async def admin_upload_url(req: UrlRequest):
+    try:
+        from ingest import read_url, clean_text, save_to_knowledge_base
+        title, content = read_url(req.url)
+        content = clean_text(content)
+        if len(content) < 100:
+            return JSONResponse({"ok": False, "error": "Nội dung trang quá ngắn hoặc không đọc được"})
+        out = save_to_knowledge_base(title, content, req.url)
+        reload_kb()
+        return JSONResponse({"ok": True, "filename": out.name, "chars": len(content)})
+    except Exception as e:
+        logger.error(e)
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+class DeleteRequest(BaseModel):
+    filename: str
+
+@app.post("/admin/delete")
+async def admin_delete(req: DeleteRequest):
+    # Chỉ cho phép xoá file trong thư mục data/
+    target = DATA_DIR / Path(req.filename).name
+    if not target.exists():
+        return JSONResponse({"ok": False, "error": "Không tìm thấy file"})
+    target.unlink()
+    reload_kb()
+    return JSONResponse({"ok": True})
+
+
+@app.get("/admin/docs")
+async def admin_docs():
+    docs = []
+    for f in sorted(DATA_DIR.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True):
+        stat = f.stat()
+        docs.append({
+            "name": f.name,
+            "size_kb": round(stat.st_size / 1024, 1),
+            "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%d/%m/%Y %H:%M"),
+        })
+    return JSONResponse({"docs": docs})
 
 
 # ---------------------------------------------------------------------------
