@@ -67,9 +67,14 @@ async def admin(_: None = Depends(require_admin)):
 # Web chat API
 # ---------------------------------------------------------------------------
 
+class HistoryMessage(BaseModel):
+    role: str   # "user" hoặc "assistant"
+    content: str
+
 class ChatRequest(BaseModel):
     message: str = ""
-    image: str = ""  # base64 data URL, ví dụ: data:image/jpeg;base64,...
+    image: str = ""
+    history: list[HistoryMessage] = []  # tối đa 10 tin nhắn gần nhất
 
 
 @app.post("/api/chat")
@@ -82,11 +87,15 @@ async def api_chat(req: ChatRequest):
 
     context = knowledge_base.search(question) if question else ""
 
+    # Chỉ giữ tối đa 10 tin nhắn gần nhất để tránh vượt token limit
+    history = [{"role": m.role, "content": m.content} for m in req.history[-10:]]
+
     try:
         answer = await claude_client.ask(
             question=question,
             context=context,
             image_base64=image,
+            history=history,
         )
     except Exception as e:
         logger.error(f"LLM error: {e}")
