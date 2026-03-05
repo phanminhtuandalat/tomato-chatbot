@@ -43,17 +43,26 @@ async def index():
 # ---------------------------------------------------------------------------
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = ""
+    image: str = ""  # base64 data URL, ví dụ: data:image/jpeg;base64,...
+
 
 @app.post("/api/chat")
 async def api_chat(req: ChatRequest):
     question = req.message.strip()
-    if not question:
+    image = req.image.strip()
+
+    if not question and not image:
         return JSONResponse({"answer": ""})
 
-    context = knowledge_base.search(question)
+    context = knowledge_base.search(question) if question else ""
+
     try:
-        answer = await claude_client.ask(question=question, context=context)
+        answer = await claude_client.ask(
+            question=question,
+            context=context,
+            image_base64=image,
+        )
     except Exception as e:
         logger.error(f"LLM error: {e}")
         answer = "Xin lỗi, hệ thống đang bận. Vui lòng thử lại sau hoặc gọi đường dây nóng khuyến nông: 1900-9008."
@@ -82,7 +91,7 @@ async def handle_text_message(user_id: str, text: str):
     try:
         answer = await claude_client.ask(question=text, context=context)
     except Exception as e:
-        logger.error(f"Claude API error: {e}")
+        logger.error(f"LLM error: {e}")
         answer = "Xin lỗi, hệ thống đang bận. Vui lòng thử lại sau hoặc gọi đường dây nóng khuyến nông: 1900-9008."
     await zalo_client.send_message(user_id, answer)
 

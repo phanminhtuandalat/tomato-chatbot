@@ -25,7 +25,6 @@
       background: #f5f5f5;
       display: flex;
       flex-direction: column;
-      position: relative;
       box-shadow: 0 0 40px rgba(0,0,0,0.15);
     }
 
@@ -47,168 +46,128 @@
       font-size: 22px;
       border: 2px solid rgba(255,255,255,0.3);
     }
-    .header-info h1 {
-      font-size: 17px;
-      font-weight: 700;
-      letter-spacing: -0.3px;
-    }
+    .header-info h1 { font-size: 17px; font-weight: 700; }
     .header-info p {
-      font-size: 12px;
-      margin-top: 3px;
-      opacity: 0.85;
-      display: flex;
-      align-items: center;
-      gap: 5px;
+      font-size: 12px; margin-top: 3px; opacity: 0.85;
+      display: flex; align-items: center; gap: 5px;
     }
     .online-dot {
-      width: 7px; height: 7px;
-      background: #69f0ae;
-      border-radius: 50%;
-      animation: pulse 2s infinite;
+      width: 7px; height: 7px; background: #69f0ae;
+      border-radius: 50%; animation: pulse 2s infinite;
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
-    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
     /* ── Gợi ý nhanh ── */
     .quick-wrap {
       padding: 12px 16px 8px;
-      display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      flex-shrink: 0;
-      scrollbar-width: none;
-      background: #f5f5f5;
+      display: flex; gap: 8px;
+      overflow-x: auto; flex-shrink: 0;
+      scrollbar-width: none; background: #f5f5f5;
     }
     .quick-wrap::-webkit-scrollbar { display: none; }
     .quick-btn {
       white-space: nowrap;
-      background: white;
-      border: 1.5px solid #a5d6a7;
-      color: #2e7d32;
-      border-radius: 20px;
-      padding: 7px 14px;
-      font-size: 13px;
-      font-family: inherit;
-      font-weight: 500;
-      cursor: pointer;
-      flex-shrink: 0;
+      background: white; border: 1.5px solid #a5d6a7;
+      color: #2e7d32; border-radius: 20px;
+      padding: 7px 14px; font-size: 13px;
+      font-family: inherit; font-weight: 500;
+      cursor: pointer; flex-shrink: 0;
       transition: all 0.15s;
       box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
     .quick-btn:hover { background: #e8f5e9; border-color: #2e7d32; }
     .quick-btn:active { background: #2e7d32; color: white; transform: scale(0.97); }
 
-    /* ── Danh sách tin nhắn ── */
+    /* ── Tin nhắn ── */
     .messages {
-      flex: 1;
-      overflow-y: auto;
+      flex: 1; overflow-y: auto;
       padding: 12px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+      display: flex; flex-direction: column; gap: 12px;
       scroll-behavior: smooth;
     }
-
-    /* ── Tin nhắn bot ── */
-    .msg-bot {
-      display: flex;
-      align-items: flex-end;
-      gap: 8px;
-    }
+    .msg-bot { display: flex; align-items: flex-end; gap: 8px; }
     .bot-avatar {
-      width: 32px; height: 32px;
-      background: #2e7d32;
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 15px;
-      flex-shrink: 0;
+      width: 32px; height: 32px; background: #2e7d32;
+      border-radius: 50%; display: flex; align-items: center;
+      justify-content: center; font-size: 15px; flex-shrink: 0;
       box-shadow: 0 2px 6px rgba(46,125,50,0.3);
     }
     .msg-bot .bubble {
-      background: white;
-      color: #212121;
+      background: white; color: #212121;
       border-radius: 18px 18px 18px 5px;
-      padding: 11px 15px;
-      max-width: 78%;
+      padding: 11px 15px; max-width: 78%;
       box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-      font-size: 14.5px;
-      line-height: 1.65;
-      white-space: pre-wrap;
-      word-break: break-word;
+      font-size: 14.5px; line-height: 1.65;
+      white-space: pre-wrap; word-break: break-word;
     }
-
-    /* ── Tin nhắn người dùng ── */
-    .msg-user {
-      display: flex;
-      justify-content: flex-end;
-    }
+    .msg-user { display: flex; justify-content: flex-end; }
     .msg-user .bubble {
       background: linear-gradient(135deg, #2e7d32, #388e3c);
-      color: white;
-      border-radius: 18px 18px 5px 18px;
-      padding: 11px 15px;
-      max-width: 78%;
-      font-size: 14.5px;
-      line-height: 1.65;
-      word-break: break-word;
+      color: white; border-radius: 18px 18px 5px 18px;
+      padding: 11px 15px; max-width: 78%;
+      font-size: 14.5px; line-height: 1.65; word-break: break-word;
       box-shadow: 0 2px 8px rgba(46,125,50,0.25);
     }
-
-    /* ── Thời gian ── */
     .msg-time {
-      font-size: 11px;
-      color: #9e9e9e;
-      text-align: center;
-      margin: 4px 0;
+      font-size: 11px; color: #9e9e9e;
+      text-align: center; margin: 4px 0;
+    }
+
+    /* ── Ảnh trong chat ── */
+    .msg-user .bubble img,
+    .msg-bot .bubble img {
+      max-width: 100%; border-radius: 10px;
+      display: block; margin-bottom: 6px;
+    }
+
+    /* ── Preview ảnh trước khi gửi ── */
+    .preview-wrap {
+      display: none;
+      padding: 8px 16px 0;
+      background: #f5f5f5;
+      flex-shrink: 0;
+    }
+    .preview-wrap.show { display: flex; align-items: center; gap: 10px; }
+    .preview-wrap img {
+      width: 64px; height: 64px;
+      object-fit: cover; border-radius: 10px;
+      border: 2px solid #a5d6a7;
+    }
+    .preview-caption { font-size: 13px; color: #555; flex: 1; }
+    .preview-remove {
+      background: #ef5350; color: white;
+      border: none; border-radius: 50%;
+      width: 24px; height: 24px;
+      font-size: 14px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
     }
 
     /* ── Đang gõ ── */
-    .typing .bubble {
-      padding: 14px 18px !important;
-    }
-    .dots {
-      display: flex;
-      gap: 5px;
-      align-items: center;
-    }
+    .typing .bubble { padding: 14px 18px !important; }
+    .dots { display: flex; gap: 5px; align-items: center; }
     .dot {
-      width: 8px; height: 8px;
-      background: #bdbdbd;
-      border-radius: 50%;
-      animation: bounce 1.2s ease-in-out infinite;
+      width: 8px; height: 8px; background: #bdbdbd;
+      border-radius: 50%; animation: bounce 1.2s ease-in-out infinite;
     }
     .dot:nth-child(2) { animation-delay: 0.2s; }
     .dot:nth-child(3) { animation-delay: 0.4s; }
     @keyframes bounce {
-      0%, 80%, 100% { transform: translateY(0); background: #bdbdbd; }
-      40% { transform: translateY(-7px); background: #2e7d32; }
+      0%,80%,100%{transform:translateY(0);background:#bdbdbd}
+      40%{transform:translateY(-7px);background:#2e7d32}
     }
 
     /* ── Input bar ── */
     .input-bar {
-      background: white;
-      padding: 12px 14px;
-      display: flex;
-      gap: 10px;
-      align-items: flex-end;
-      border-top: 1px solid #e0e0e0;
-      flex-shrink: 0;
+      background: white; padding: 10px 12px;
+      display: flex; gap: 8px; align-items: flex-end;
+      border-top: 1px solid #e0e0e0; flex-shrink: 0;
     }
     .input-bar textarea {
-      flex: 1;
-      border: 1.5px solid #c8e6c9;
-      border-radius: 22px;
-      padding: 11px 16px;
-      font-size: 14.5px;
-      font-family: inherit;
-      resize: none;
-      outline: none;
-      max-height: 110px;
-      line-height: 1.5;
-      background: #f9fbe7;
-      color: #212121;
+      flex: 1; border: 1.5px solid #c8e6c9;
+      border-radius: 22px; padding: 10px 14px;
+      font-size: 14.5px; font-family: inherit;
+      resize: none; outline: none; max-height: 110px;
+      line-height: 1.5; background: #f9fbe7; color: #212121;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
     .input-bar textarea:focus {
@@ -217,19 +176,29 @@
     }
     .input-bar textarea::placeholder { color: #9e9e9e; }
 
-    .send-btn {
-      width: 44px; height: 44px;
-      background: linear-gradient(135deg, #2e7d32, #43a047);
-      border: none;
-      border-radius: 50%;
-      color: white;
-      cursor: pointer;
+    /* Nút ảnh */
+    .img-btn {
+      width: 42px; height: 42px;
+      background: #e8f5e9; border: 1.5px solid #a5d6a7;
+      border-radius: 50%; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
+      flex-shrink: 0; transition: all 0.15s; color: #2e7d32;
+    }
+    .img-btn:hover { background: #c8e6c9; }
+    .img-btn:active { transform: scale(0.93); }
+    .img-btn svg { width: 20px; height: 20px; }
+
+    /* Nút gửi */
+    .send-btn {
+      width: 42px; height: 42px;
+      background: linear-gradient(135deg, #2e7d32, #43a047);
+      border: none; border-radius: 50%; color: white;
+      cursor: pointer; display: flex; align-items: center;
+      justify-content: center; flex-shrink: 0;
       transition: all 0.15s;
       box-shadow: 0 3px 10px rgba(46,125,50,0.35);
     }
-    .send-btn:hover { transform: scale(1.05); box-shadow: 0 4px 14px rgba(46,125,50,0.45); }
+    .send-btn:hover { transform: scale(1.05); }
     .send-btn:active { transform: scale(0.95); }
     .send-btn:disabled { background: #a5d6a7; box-shadow: none; cursor: not-allowed; transform: none; }
     .send-btn svg { width: 20px; height: 20px; }
@@ -271,23 +240,39 @@ Tôi là trợ lý tư vấn kỹ thuật trồng <b>cà chua</b>. Tôi có th�
 💧 Phân bón và tưới nước
 🍅 Thời điểm thu hoạch
 
-Hãy đặt câu hỏi nhé!</div>
+Bà con cũng có thể <b>chụp ảnh lá/quả bị bệnh</b> gửi lên, tôi sẽ giúp nhận dạng sâu bệnh! 📷</div>
     </div>
+  </div>
+
+  <!-- Preview ảnh -->
+  <div class="preview-wrap" id="previewWrap">
+    <img id="previewImg" src="" alt="preview" />
+    <span class="preview-caption">Ảnh đã chọn — nhập câu hỏi hoặc gửi luôn</span>
+    <button class="preview-remove" onclick="removeImage()" title="Xoá ảnh">✕</button>
   </div>
 
   <!-- Input -->
   <div class="input-bar">
+    <!-- Nút chọn ảnh -->
+    <button class="img-btn" onclick="document.getElementById('fileInput').click()" title="Gửi ảnh">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+    </button>
+    <input type="file" id="fileInput" accept="image/*" capture="environment" style="display:none" onchange="handleImage(event)" />
+
     <textarea
       id="input"
-      placeholder="Nhắn tin hỏi về cà chua..."
+      placeholder="Nhắn tin hoặc gửi ảnh sâu bệnh..."
       rows="1"
       onkeydown="handleKey(event)"
       oninput="autoResize(this)"
     ></textarea>
+
     <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Gửi">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"></line>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
       </svg>
     </button>
   </div>
@@ -295,35 +280,69 @@ Hãy đặt câu hỏi nhé!</div>
 </div>
 
 <script>
-  const messagesEl = document.getElementById('messages');
-  const inputEl    = document.getElementById('input');
-  const sendBtn    = document.getElementById('sendBtn');
+  const messagesEl  = document.getElementById('messages');
+  const inputEl     = document.getElementById('input');
+  const sendBtn     = document.getElementById('sendBtn');
+  const previewWrap = document.getElementById('previewWrap');
+  const previewImg  = document.getElementById('previewImg');
+
+  let pendingImage = ''; // base64 data URL
 
   function scrollBottom() {
     messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'smooth' });
   }
-
   function autoResize(el) {
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 110) + 'px';
   }
-
   function handleKey(e) {
     if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 600) {
-      e.preventDefault();
-      sendMessage();
+      e.preventDefault(); sendMessage();
     }
   }
-
   function now() {
     return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   }
+  function esc(text) {
+    return text
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+      .replace(/\n/g, '<br>');
+  }
 
-  function addUserMessage(text) {
+  /* ── Xử lý ảnh ── */
+  function handleImage(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      pendingImage = ev.target.result; // data:image/jpeg;base64,...
+      previewImg.src = pendingImage;
+      previewWrap.classList.add('show');
+      inputEl.placeholder = 'Thêm câu hỏi về ảnh (tuỳ chọn)...';
+      inputEl.focus();
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // reset để chọn lại cùng file được
+  }
+
+  function removeImage() {
+    pendingImage = '';
+    previewImg.src = '';
+    previewWrap.classList.remove('show');
+    inputEl.placeholder = 'Nhắn tin hoặc gửi ảnh sâu bệnh...';
+  }
+
+  /* ── Thêm tin nhắn ── */
+  function addUserMessage(text, imageUrl) {
     const div = document.createElement('div');
     div.className = 'msg-user';
-    div.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+    let content = '';
+    if (imageUrl) content += `<img src="${imageUrl}" alt="ảnh" />`;
+    if (text)     content += esc(text);
+    div.innerHTML = `<div class="bubble">${content}</div>`;
     messagesEl.appendChild(div);
+
     const time = document.createElement('div');
     time.className = 'msg-time';
     time.textContent = now();
@@ -344,57 +363,47 @@ Hãy đặt câu hỏi nhé!</div>
 
   function showTyping() {
     const div = document.createElement('div');
-    div.className = 'msg-bot typing';
-    div.id = 'typing';
+    div.className = 'msg-bot typing'; div.id = 'typing';
     div.innerHTML = `
       <div class="bot-avatar">🍅</div>
       <div class="bubble"><div class="dots">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
-      </div></div>
-    `;
-    messagesEl.appendChild(div);
-    scrollBottom();
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      </div></div>`;
+    messagesEl.appendChild(div); scrollBottom();
   }
-
   function removeTyping() {
     const el = document.getElementById('typing');
     if (el) el.remove();
   }
 
-  function esc(text) {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-      .replace(/\n/g, '<br>');
-  }
-
   function quickAsk(btn) {
-    // Bỏ emoji ở đầu nếu có
     const text = btn.textContent.replace(/^[\p{Emoji}\s]+/u, '').trim();
     inputEl.value = text;
     sendMessage();
   }
 
+  /* ── Gửi tin nhắn ── */
   async function sendMessage() {
-    const text = inputEl.value.trim();
-    if (!text || sendBtn.disabled) return;
+    const text  = inputEl.value.trim();
+    const image = pendingImage;
 
+    if (!text && !image) return;
+    if (sendBtn.disabled) return;
+
+    // Reset input
     inputEl.value = '';
     inputEl.style.height = 'auto';
+    removeImage();
     sendBtn.disabled = true;
 
-    addUserMessage(text);
+    addUserMessage(text, image);
     showTyping();
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, image }),
       });
       const data = await res.json();
       removeTyping();
