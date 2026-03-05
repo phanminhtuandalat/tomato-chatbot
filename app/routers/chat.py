@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.services import llm, rag as rag_module
+from app.services.llm import LLMError
 from app.database import save_feedback, save_question, get_premium_quota, consume_premium, redeem_code
 
 router = APIRouter()
@@ -114,6 +115,16 @@ async def api_chat(req: ChatRequest, request: Request):
     context = rag_module.rag.search(question) if question else ""
     history = [{"role": m.role, "content": m.content} for m in req.history]
 
+    _ERROR_MESSAGES = {
+        "timeout":  "Hệ thống phản hồi chậm, vui lòng thử lại sau ít phút.",
+        "connect":  "Không kết nối được đến máy chủ AI. Kiểm tra mạng và thử lại.",
+        "auth":     "Lỗi xác thực API. Vui lòng liên hệ quản trị viên.",
+        "quota":    "Hệ thống AI đang quá tải. Vui lòng thử lại sau vài phút.",
+        "server":   "Máy chủ AI đang gặp sự cố. Vui lòng thử lại sau.",
+        "response": "Nhận được phản hồi không hợp lệ từ AI. Vui lòng thử lại.",
+        "http":     "Lỗi kết nối đến AI. Vui lòng thử lại sau.",
+    }
+
     try:
         answer = await llm.chat(
             question=question,
@@ -121,9 +132,12 @@ async def api_chat(req: ChatRequest, request: Request):
             image_base64=image,
             history=history,
         )
+    except LLMError as e:
+        log.error("LLMError [%s]", e)
+        answer = _ERROR_MESSAGES.get(str(e), "Lỗi không xác định. Vui lòng thử lại.")
     except Exception as e:
-        log.exception("llm.chat error: %s", e)
-        answer = "Xin lỗi, hệ thống đang bận. Vui lòng thử lại sau hoặc gọi đường dây nóng khuyến nông: 1900-9008."
+        log.exception("llm.chat unexpected error: %s", e)
+        answer = "Lỗi hệ thống không xác định. Vui lòng thử lại hoặc gọi 1900-9008."
 
     return JSONResponse({"answer": answer})
 

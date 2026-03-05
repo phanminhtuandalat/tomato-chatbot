@@ -119,16 +119,39 @@ def _cache_set(key: str, answer: str) -> None:
     _cache[key] = (answer, time.time())
 
 
+class LLMError(Exception):
+    """Lỗi có thông báo thân thiện để hiển thị cho người dùng."""
+
+
 async def _call(messages: list[dict], model: str = OPENROUTER_MODEL_FAST,
                 max_tokens: int = MAX_TOKENS_RESPONSE) -> str:
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=_headers(),
-            json={"model": model, "max_tokens": max_tokens, "messages": messages},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=_headers(),
+                json={"model": model, "max_tokens": max_tokens, "messages": messages},
+            )
+    except httpx.TimeoutException:
+        raise LLMError("timeout")
+    except httpx.ConnectError:
+        raise LLMError("connect")
+
+    if response.status_code == 401:
+        raise LLMError("auth")
+    if response.status_code in (402, 429):
+        raise LLMError("quota")
+    if response.status_code >= 500:
+        raise LLMError("server")
+
+    try:
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError):
+        raise LLMError("response")
+    except httpx.HTTPStatusError:
+        raise LLMError("http")
 
 
 async def chat(
