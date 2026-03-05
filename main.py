@@ -12,9 +12,11 @@ from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException, UploadFile, File
+import secrets
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Depends
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 load_dotenv()
@@ -29,7 +31,21 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Chatbot Cà Chua")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-ZALO_APP_SECRET = os.getenv("ZALO_APP_SECRET", "")
+ZALO_APP_SECRET  = os.getenv("ZALO_APP_SECRET", "")
+ADMIN_USER       = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASSWORD   = os.getenv("ADMIN_PASSWORD", "changeme")
+
+security = HTTPBasic()
+
+def require_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    ok_user = secrets.compare_digest(credentials.username.encode(), ADMIN_USER.encode())
+    ok_pass = secrets.compare_digest(credentials.password.encode(), ADMIN_PASSWORD.encode())
+    if not (ok_user and ok_pass):
+        raise HTTPException(
+            status_code=401,
+            detail="Sai tên đăng nhập hoặc mật khẩu",
+            headers={"WWW-Authenticate": "Basic realm='Admin'"},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +59,7 @@ async def index():
     return FileResponse("static/index.html")
 
 @app.get("/admin")
-async def admin():
+async def admin(_: None = Depends(require_admin)):
     return FileResponse("static/admin.html")
 
 
@@ -93,7 +109,7 @@ def reload_kb():
 
 
 @app.post("/admin/upload")
-async def admin_upload(file: UploadFile = File(...)):
+async def admin_upload(file: UploadFile = File(...), _: None = Depends(require_admin)):
     ext = Path(file.filename).suffix.lower()
     if ext not in (".pdf", ".docx", ".txt", ".md"):
         return JSONResponse({"ok": False, "error": f"Định dạng {ext} không được hỗ trợ"})
@@ -130,7 +146,7 @@ class UrlRequest(BaseModel):
     url: str
 
 @app.post("/admin/upload-url")
-async def admin_upload_url(req: UrlRequest):
+async def admin_upload_url(req: UrlRequest, _: None = Depends(require_admin)):
     try:
         from ingest import read_url, clean_text, save_to_knowledge_base
         title, content = read_url(req.url)
@@ -149,7 +165,7 @@ class DeleteRequest(BaseModel):
     filename: str
 
 @app.post("/admin/upload-image")
-async def admin_upload_image(file: UploadFile = File(...), title: str = ""):
+async def admin_upload_image(file: UploadFile = File(...), title: str = "", _: None = Depends(require_admin)):
     ext = Path(file.filename).suffix.lower()
     if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
         return JSONResponse({"ok": False, "error": "Chỉ hỗ trợ ảnh JPG, PNG, WEBP"})
@@ -184,7 +200,7 @@ async def admin_upload_image(file: UploadFile = File(...), title: str = ""):
 
 
 @app.post("/admin/delete")
-async def admin_delete(req: DeleteRequest):
+async def admin_delete(req: DeleteRequest, _: None = Depends(require_admin)):
     # Chỉ cho phép xoá file trong thư mục data/
     target = DATA_DIR / Path(req.filename).name
     if not target.exists():
@@ -195,7 +211,7 @@ async def admin_delete(req: DeleteRequest):
 
 
 @app.get("/admin/docs")
-async def admin_docs():
+async def admin_docs(_: None = Depends(require_admin)):
     docs = []
     for f in sorted(DATA_DIR.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True):
         stat = f.stat()
