@@ -29,6 +29,8 @@ app.include_router(push.router)
 
 @app.on_event("startup")
 async def startup():
+    from pathlib import Path
+    Path("data").mkdir(exist_ok=True)
     init_db()
 
 
