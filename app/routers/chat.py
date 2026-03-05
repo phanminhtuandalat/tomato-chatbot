@@ -22,17 +22,19 @@ router = APIRouter()
 
 _request_log: dict[str, list[float]] = defaultdict(list)
 _daily_log:   dict[str, tuple[str, int]] = {}  # ip -> (date, count)
+_image_log:   dict[str, tuple[str, int]] = {}  # ip -> (date, count)
 
-RATE_LIMIT  = 20    # request/phút/IP
-DAILY_LIMIT = 5     # request/ngày/IP
-WINDOW      = 60.0
+RATE_LIMIT   = 20   # request/phút/IP
+DAILY_LIMIT  = 5    # câu hỏi/ngày/IP
+IMAGE_LIMIT  = 2    # ảnh/ngày/IP
+WINDOW       = 60.0
 
 
-def _check_rate(ip: str) -> None:
-    now  = time.time()
+def _check_rate(ip: str, has_image: bool = False) -> None:
+    now   = time.time()
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Giới hạn ngày
+    # Giới hạn ngày (tổng)
     date, count = _daily_log.get(ip, ("", 0))
     if date == today:
         if count >= DAILY_LIMIT:
@@ -43,6 +45,19 @@ def _check_rate(ip: str) -> None:
         _daily_log[ip] = (today, count + 1)
     else:
         _daily_log[ip] = (today, 1)
+
+    # Giới hạn ảnh/ngày
+    if has_image:
+        idate, icount = _image_log.get(ip, ("", 0))
+        if idate == today:
+            if icount >= IMAGE_LIMIT:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Bạn đã gửi đủ 2 ảnh miễn phí hôm nay. Vui lòng quay lại vào ngày mai nhé! 📷",
+                )
+            _image_log[ip] = (today, icount + 1)
+        else:
+            _image_log[ip] = (today, 1)
 
     # Giới hạn phút
     timestamps = [t for t in _request_log[ip] if now - t < WINDOW]
@@ -71,10 +86,10 @@ class ChatRequest(BaseModel):
 
 @router.post("/api/chat")
 async def api_chat(req: ChatRequest, request: Request):
-    _check_rate(request.client.host)
-
     question = req.message.strip()
     image    = req.image.strip()
+
+    _check_rate(request.client.host, has_image=bool(image))
 
     if not question and not image:
         return JSONResponse({"answer": ""})
