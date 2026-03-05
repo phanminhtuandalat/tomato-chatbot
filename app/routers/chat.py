@@ -24,7 +24,7 @@ _request_log: dict[str, list[float]] = defaultdict(list)
 _daily_log:   dict[str, tuple[str, int]] = {}  # ip -> (date, count)
 
 RATE_LIMIT  = 20    # request/phút/IP
-DAILY_LIMIT = 80    # request/ngày/IP
+DAILY_LIMIT = 5     # request/ngày/IP
 WINDOW      = 60.0
 
 
@@ -38,7 +38,7 @@ def _check_rate(ip: str) -> None:
         if count >= DAILY_LIMIT:
             raise HTTPException(
                 status_code=429,
-                detail="Bạn đã hỏi quá nhiều hôm nay. Vui lòng thử lại vào ngày mai.",
+                detail="Bạn đã dùng hết 5 câu hỏi miễn phí hôm nay. Vui lòng quay lại vào ngày mai nhé! 🍅",
             )
         _daily_log[ip] = (today, count + 1)
     else:
