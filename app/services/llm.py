@@ -3,32 +3,21 @@ LLM Service — gọi OpenRouter API.
 Hỗ trợ: text, hình ảnh (vision), lịch sử hội thoại, trích xuất kiến thức từ ảnh.
 """
 
+import hashlib
+import time
 from datetime import datetime
 import httpx
-from app.config import OPENROUTER_API_KEY, OPENROUTER_MODEL
+from app.config import OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_MODEL_FAST
 
 
-SYSTEM_PROMPT_TEMPLATE = """Bạn là chuyên gia nông nghiệp hỗ trợ nông dân trồng cà chua tại Việt Nam.
+SYSTEM_PROMPT_TEMPLATE = """Bạn là chuyên gia tư vấn trồng cà chua cho nông dân Việt Nam. Hiện tại: tháng {month}/{year}.
 
-Thời điểm hiện tại: tháng {month} năm {year}.
-
-Nguyên tắc trả lời:
-- Trả lời bằng tiếng Việt, ngắn gọn, thực tế, dễ hiểu
-- Ưu tiên dùng thông tin trong phần "Tài liệu tham khảo" nếu có
-- Luôn gắn lời khuyên với thời điểm tháng {month} hiện tại (mùa vụ, thời tiết)
-- Nêu cụ thể: tên thuốc, liều lượng, thời điểm xử lý
-- Nếu không chắc hoặc bệnh nặng, luôn khuyên liên hệ cán bộ khuyến nông
-- KHÔNG bịa đặt thông tin, KHÔNG đưa lời khuyên mơ hồ
-
-Khi phân tích ảnh:
-- Mô tả rõ triệu chứng nhìn thấy trong ảnh
-- Đưa ra chẩn đoán khả năng cao nhất
-- Gợi ý cách xử lý cụ thể phù hợp với tháng {month}
-- Nếu ảnh không đủ rõ, yêu cầu chụp thêm góc khác
-
-Khi không có đủ thông tin:
-Trả lời: "Tôi chưa có đủ thông tin để tư vấn chính xác. Bạn nên liên hệ cán bộ khuyến nông địa phương hoặc gọi đường dây nóng 1900-9008."
-"""
+Quy tắc:
+- Tiếng Việt, ngắn gọn, thực tế
+- Ưu tiên thông tin từ "Tài liệu tham khảo" nếu có; gắn với mùa vụ tháng {month}
+- Nêu cụ thể: tên thuốc, liều lượng, thời điểm
+- Không chắc hoặc bệnh nặng → khuyên gọi 1900-9008
+- KHÔNG bịa đặt thông tin"""
 
 EXTRACT_PROMPT = """Bạn là chuyên gia nông nghiệp. Hãy đọc ảnh này và trích xuất toàn bộ kiến thức nông nghiệp có trong đó.
 
@@ -102,12 +91,41 @@ def _trim_history(history: list[dict]) -> list[dict]:
     return trimmed
 
 
-async def _call(messages: list[dict], max_tokens: int = MAX_TOKENS_RESPONSE) -> str:
+# ---------------------------------------------------------------------------
+# Answer cache — tránh gọi API cho cùng câu hỏi
+# ---------------------------------------------------------------------------
+
+_cache: dict[str, tuple[str, float]] = {}  # key -> (answer, timestamp)
+_CACHE_TTL  = 3600   # 1 giờ
+_CACHE_MAX  = 300    # tối đa 300 entries
+
+
+def _cache_key(question: str, context: str) -> str:
+    raw = question.strip().lower() + "|" + context[:200]
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+def _cache_get(key: str) -> str | None:
+    entry = _cache.get(key)
+    if entry and time.time() - entry[1] < _CACHE_TTL:
+        return entry[0]
+    return None
+
+
+def _cache_set(key: str, answer: str) -> None:
+    if len(_cache) >= _CACHE_MAX:
+        oldest = min(_cache, key=lambda k: _cache[k][1])
+        del _cache[oldest]
+    _cache[key] = (answer, time.time())
+
+
+async def _call(messages: list[dict], model: str = OPENROUTER_MODEL_FAST,
+                max_tokens: int = MAX_TOKENS_RESPONSE) -> str:
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=_headers(),
-            json={"model": OPENROUTER_MODEL, "max_tokens": max_tokens, "messages": messages},
+            json={"model": model, "max_tokens": max_tokens, "messages": messages},
         )
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
@@ -120,11 +138,11 @@ async def chat(
     history: list[dict] | None = None,
 ) -> str:
     """Trả lời câu hỏi của nông dân, có kèm context RAG và lịch sử hội thoại."""
-    # Cắt input để kiểm soát chi phí
     question = question[:MAX_QUESTION_CHARS]
     context  = context[:MAX_CONTEXT_CHARS]
 
     if image_base64:
+        # Ảnh: dùng model mạnh (Sonnet) + không cache (mỗi ảnh khác nhau)
         image_base64 = _compress_image(image_base64)
         text = question or "Phân tích ảnh cây cà chua này và cho biết có vấn đề gì không?"
         if context:
@@ -133,22 +151,41 @@ async def chat(
             {"type": "image_url", "image_url": {"url": image_base64}},
             {"type": "text", "text": text},
         ]
+        messages = [{"role": "system", "content": _system_prompt()}]
+        if history:
+            messages.extend(_trim_history(history))
+        messages.append({"role": "user", "content": user_content})
+        return await _call(messages, model=OPENROUTER_MODEL)
+
+    # Text: kiểm tra cache trước (chỉ cache khi không có history — độc lập ngữ cảnh)
+    no_history = not history or len(history) == 0
+    cache_key  = _cache_key(question, context) if no_history else None
+    if cache_key:
+        cached = _cache_get(cache_key)
+        if cached:
+            return cached
+
+    if context:
+        user_content = (
+            f"Câu hỏi: {question}\n\n"
+            f"---\nTài liệu tham khảo:\n{context}\n---\n\n"
+            f"Trả lời dựa trên tài liệu, có tính đến mùa vụ hiện tại."
+        )
     else:
-        if context:
-            user_content = (
-                f"Câu hỏi: {question}\n\n"
-                f"---\nTài liệu tham khảo:\n{context}\n---\n\n"
-                f"Trả lời dựa trên tài liệu, có tính đến mùa vụ hiện tại."
-            )
-        else:
-            user_content = question
+        user_content = question
 
     messages = [{"role": "system", "content": _system_prompt()}]
     if history:
         messages.extend(_trim_history(history))
     messages.append({"role": "user", "content": user_content})
 
-    return await _call(messages)
+    # Text: dùng model nhanh/rẻ (Haiku)
+    answer = await _call(messages, model=OPENROUTER_MODEL_FAST)
+
+    if cache_key:
+        _cache_set(cache_key, answer)
+
+    return answer
 
 
 async def extract_from_image(image_base64: str) -> str:
