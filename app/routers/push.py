@@ -67,7 +67,14 @@ async def send_push(msg: PushMessage, _: None = Depends(require_admin)):
     if not PUSH_ENABLED:
         raise HTTPException(status_code=400, detail="Push notifications chưa được cấu hình. Cần thêm VAPID_PUBLIC_KEY và VAPID_PRIVATE_KEY.")
 
+    import base64
     from pywebpush import webpush, WebPushException
+
+    # Decode private key từ base64 PEM về PEM string
+    try:
+        priv_pem = base64.b64decode(VAPID_PRIVATE_KEY + "==").decode()
+    except Exception:
+        priv_pem = VAPID_PRIVATE_KEY  # fallback nếu đã là PEM
 
     subs = get_all_subscriptions()
     if not subs:
@@ -85,7 +92,7 @@ async def send_push(msg: PushMessage, _: None = Depends(require_admin)):
                     "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
                 },
                 data=payload,
-                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_private_key=priv_pem,
                 vapid_claims={"sub": VAPID_EMAIL},
             )
             sent += 1
