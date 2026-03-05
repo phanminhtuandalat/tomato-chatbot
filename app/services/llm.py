@@ -57,7 +57,52 @@ def _headers() -> dict:
     }
 
 
-async def _call(messages: list[dict], max_tokens: int = 1024) -> str:
+# ---------------------------------------------------------------------------
+# Giới hạn token — bảo vệ chi phí
+# ---------------------------------------------------------------------------
+
+MAX_QUESTION_CHARS  = 400   # ~100 token
+MAX_CONTEXT_CHARS   = 1800  # ~450 token (4 chunks rút gọn)
+MAX_HISTORY_MSGS    = 6     # 3 lượt gần nhất
+MAX_HISTORY_CHARS   = 250   # mỗi message tối đa ~60 token
+MAX_TOKENS_RESPONSE = 700   # đủ cho câu trả lời nông nghiệp thực tế
+MAX_IMAGE_PX        = 768   # resize ảnh xuống tối đa 768px, JPEG q=80
+
+
+def _compress_image(data_url: str) -> str:
+    """Resize + nén ảnh xuống MAX_IMAGE_PX trước khi gửi lên LLM."""
+    try:
+        import base64, io
+        from PIL import Image
+
+        header, b64 = data_url.split(",", 1)
+        raw = base64.b64decode(b64)
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
+
+        if max(img.size) > MAX_IMAGE_PX:
+            img.thumbnail((MAX_IMAGE_PX, MAX_IMAGE_PX), Image.LANCZOS)
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=80, optimize=True)
+        compressed = base64.b64encode(buf.getvalue()).decode()
+        return f"data:image/jpeg;base64,{compressed}"
+    except Exception:
+        return data_url  # fallback: gửi nguyên
+
+
+def _trim_history(history: list[dict]) -> list[dict]:
+    """Giữ lại MAX_HISTORY_MSGS tin nhắn gần nhất, cắt nội dung dài."""
+    recent = history[-MAX_HISTORY_MSGS:]
+    trimmed = []
+    for msg in recent:
+        content = msg["content"]
+        if isinstance(content, str) and len(content) > MAX_HISTORY_CHARS:
+            content = content[:MAX_HISTORY_CHARS] + "…"
+        trimmed.append({"role": msg["role"], "content": content})
+    return trimmed
+
+
+async def _call(messages: list[dict], max_tokens: int = MAX_TOKENS_RESPONSE) -> str:
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -75,7 +120,12 @@ async def chat(
     history: list[dict] | None = None,
 ) -> str:
     """Trả lời câu hỏi của nông dân, có kèm context RAG và lịch sử hội thoại."""
+    # Cắt input để kiểm soát chi phí
+    question = question[:MAX_QUESTION_CHARS]
+    context  = context[:MAX_CONTEXT_CHARS]
+
     if image_base64:
+        image_base64 = _compress_image(image_base64)
         text = question or "Phân tích ảnh cây cà chua này và cho biết có vấn đề gì không?"
         if context:
             text += f"\n\n---\nTài liệu tham khảo:\n{context}"
@@ -95,7 +145,7 @@ async def chat(
 
     messages = [{"role": "system", "content": _system_prompt()}]
     if history:
-        messages.extend(history[-10:])
+        messages.extend(_trim_history(history))
     messages.append({"role": "user", "content": user_content})
 
     return await _call(messages)

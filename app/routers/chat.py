@@ -21,12 +21,30 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 _request_log: dict[str, list[float]] = defaultdict(list)
-RATE_LIMIT = 30
-WINDOW = 60.0
+_daily_log:   dict[str, tuple[str, int]] = {}  # ip -> (date, count)
+
+RATE_LIMIT  = 20    # request/phút/IP
+DAILY_LIMIT = 80    # request/ngày/IP
+WINDOW      = 60.0
 
 
 def _check_rate(ip: str) -> None:
-    now = time.time()
+    now  = time.time()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Giới hạn ngày
+    date, count = _daily_log.get(ip, ("", 0))
+    if date == today:
+        if count >= DAILY_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail="Bạn đã hỏi quá nhiều hôm nay. Vui lòng thử lại vào ngày mai.",
+            )
+        _daily_log[ip] = (today, count + 1)
+    else:
+        _daily_log[ip] = (today, 1)
+
+    # Giới hạn phút
     timestamps = [t for t in _request_log[ip] if now - t < WINDOW]
     if len(timestamps) >= RATE_LIMIT:
         raise HTTPException(
