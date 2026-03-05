@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Tư Vấn Cà Chua</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #e8f5e9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100dvh;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 480px;
+      height: 100dvh;
+      background: #f5f5f5;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      box-shadow: 0 0 40px rgba(0,0,0,0.15);
+    }
+
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, #1b5e20, #2e7d32);
+      color: white;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-shrink: 0;
+    }
+    .avatar {
+      width: 46px; height: 46px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      border: 2px solid rgba(255,255,255,0.3);
+    }
+    .header-info h1 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .header-info p {
+      font-size: 12px;
+      margin-top: 3px;
+      opacity: 0.85;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .online-dot {
+      width: 7px; height: 7px;
+      background: #69f0ae;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* ── Gợi ý nhanh ── */
+    .quick-wrap {
+      padding: 12px 16px 8px;
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      flex-shrink: 0;
+      scrollbar-width: none;
+      background: #f5f5f5;
+    }
+    .quick-wrap::-webkit-scrollbar { display: none; }
+    .quick-btn {
+      white-space: nowrap;
+      background: white;
+      border: 1.5px solid #a5d6a7;
+      color: #2e7d32;
+      border-radius: 20px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.15s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .quick-btn:hover { background: #e8f5e9; border-color: #2e7d32; }
+    .quick-btn:active { background: #2e7d32; color: white; transform: scale(0.97); }
+
+    /* ── Danh sách tin nhắn ── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scroll-behavior: smooth;
+    }
+
+    /* ── Tin nhắn bot ── */
+    .msg-bot {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .bot-avatar {
+      width: 32px; height: 32px;
+      background: #2e7d32;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(46,125,50,0.3);
+    }
+    .msg-bot .bubble {
+      background: white;
+      color: #212121;
+      border-radius: 18px 18px 18px 5px;
+      padding: 11px 15px;
+      max-width: 78%;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      font-size: 14.5px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* ── Tin nhắn người dùng ── */
+    .msg-user {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .msg-user .bubble {
+      background: linear-gradient(135deg, #2e7d32, #388e3c);
+      color: white;
+      border-radius: 18px 18px 5px 18px;
+      padding: 11px 15px;
+      max-width: 78%;
+      font-size: 14.5px;
+      line-height: 1.65;
+      word-break: break-word;
+      box-shadow: 0 2px 8px rgba(46,125,50,0.25);
+    }
+
+    /* ── Thời gian ── */
+    .msg-time {
+      font-size: 11px;
+      color: #9e9e9e;
+      text-align: center;
+      margin: 4px 0;
+    }
+
+    /* ── Đang gõ ── */
+    .typing .bubble {
+      padding: 14px 18px !important;
+    }
+    .dots {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      background: #bdbdbd;
+      border-radius: 50%;
+      animation: bounce 1.2s ease-in-out infinite;
+    }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); background: #bdbdbd; }
+      40% { transform: translateY(-7px); background: #2e7d32; }
+    }
+
+    /* ── Input bar ── */
+    .input-bar {
+      background: white;
+      padding: 12px 14px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      border-top: 1px solid #e0e0e0;
+      flex-shrink: 0;
+    }
+    .input-bar textarea {
+      flex: 1;
+      border: 1.5px solid #c8e6c9;
+      border-radius: 22px;
+      padding: 11px 16px;
+      font-size: 14.5px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      max-height: 110px;
+      line-height: 1.5;
+      background: #f9fbe7;
+      color: #212121;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .input-bar textarea:focus {
+      border-color: #2e7d32;
+      box-shadow: 0 0 0 3px rgba(46,125,50,0.1);
+    }
+    .input-bar textarea::placeholder { color: #9e9e9e; }
+
+    .send-btn {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, #2e7d32, #43a047);
+      border: none;
+      border-radius: 50%;
+      color: white;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.15s;
+      box-shadow: 0 3px 10px rgba(46,125,50,0.35);
+    }
+    .send-btn:hover { transform: scale(1.05); box-shadow: 0 4px 14px rgba(46,125,50,0.45); }
+    .send-btn:active { transform: scale(0.95); }
+    .send-btn:disabled { background: #a5d6a7; box-shadow: none; cursor: not-allowed; transform: none; }
+    .send-btn svg { width: 20px; height: 20px; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="avatar">🍅</div>
+    <div class="header-info">
+      <h1>Tư Vấn Cà Chua</h1>
+      <p><span class="online-dot"></span> Chuyên gia sẵn sàng hỗ trợ</p>
+    </div>
+  </div>
+
+  <!-- Câu hỏi gợi ý -->
+  <div class="quick-wrap">
+    <button class="quick-btn" onclick="quickAsk(this)">🌱 Cách trồng cà chua</button>
+    <button class="quick-btn" onclick="quickAsk(this)">🟡 Cà chua bị vàng lá</button>
+    <button class="quick-btn" onclick="quickAsk(this)">💊 Lịch bón phân</button>
+    <button class="quick-btn" onclick="quickAsk(this)">🐛 Sâu đục quả</button>
+    <button class="quick-btn" onclick="quickAsk(this)">🦠 Bệnh héo rũ</button>
+    <button class="quick-btn" onclick="quickAsk(this)">🍅 Thu hoạch khi nào</button>
+  </div>
+
+  <!-- Tin nhắn -->
+  <div class="messages" id="messages">
+    <div class="msg-time">Hôm nay</div>
+    <div class="msg-bot">
+      <div class="bot-avatar">🍅</div>
+      <div class="bubble">Xin chào bà con! 👋
+
+Tôi là trợ lý tư vấn kỹ thuật trồng <b>cà chua</b>. Tôi có thể giúp bà con về:
+
+🌱 Kỹ thuật trồng và chăm sóc
+🐛 Sâu bệnh và cách xử lý
+💧 Phân bón và tưới nước
+🍅 Thời điểm thu hoạch
+
+Hãy đặt câu hỏi nhé!</div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="input-bar">
+    <textarea
+      id="input"
+      placeholder="Nhắn tin hỏi về cà chua..."
+      rows="1"
+      onkeydown="handleKey(event)"
+      oninput="autoResize(this)"
+    ></textarea>
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Gửi">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+      </svg>
+    </button>
+  </div>
+
+</div>
+
+<script>
+  const messagesEl = document.getElementById('messages');
+  const inputEl    = document.getElementById('input');
+  const sendBtn    = document.getElementById('sendBtn');
+
+  function scrollBottom() {
+    messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'smooth' });
+  }
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 110) + 'px';
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 600) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function now() {
+    return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function addUserMessage(text) {
+    const div = document.createElement('div');
+    div.className = 'msg-user';
+    div.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+    messagesEl.appendChild(div);
+    const time = document.createElement('div');
+    time.className = 'msg-time';
+    time.textContent = now();
+    messagesEl.appendChild(time);
+    scrollBottom();
+  }
+
+  function addBotMessage(text) {
+    const div = document.createElement('div');
+    div.className = 'msg-bot';
+    div.innerHTML = `
+      <div class="bot-avatar">🍅</div>
+      <div class="bubble">${esc(text)}</div>
+    `;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function showTyping() {
+    const div = document.createElement('div');
+    div.className = 'msg-bot typing';
+    div.id = 'typing';
+    div.innerHTML = `
+      <div class="bot-avatar">🍅</div>
+      <div class="bubble"><div class="dots">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </div></div>
+    `;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function removeTyping() {
+    const el = document.getElementById('typing');
+    if (el) el.remove();
+  }
+
+  function esc(text) {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+      .replace(/\n/g, '<br>');
+  }
+
+  function quickAsk(btn) {
+    // Bỏ emoji ở đầu nếu có
+    const text = btn.textContent.replace(/^[\p{Emoji}\s]+/u, '').trim();
+    inputEl.value = text;
+    sendMessage();
+  }
+
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text || sendBtn.disabled) return;
+
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    sendBtn.disabled = true;
+
+    addUserMessage(text);
+    showTyping();
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      removeTyping();
+      addBotMessage(data.answer || 'Xin lỗi, có lỗi xảy ra.');
+    } catch {
+      removeTyping();
+      addBotMessage('Lỗi kết nối. Vui lòng thử lại sau.');
+    } finally {
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+  }
+</script>
+</body>
+</html>
