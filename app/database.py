@@ -30,6 +30,24 @@ def init_db() -> None:
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS premium_codes (
+                code       TEXT    PRIMARY KEY,
+                requests   INTEGER NOT NULL,
+                images     INTEGER NOT NULL DEFAULT 0,
+                used_by    TEXT    DEFAULT '',
+                used_at    TEXT    DEFAULT '',
+                created_at TEXT    NOT NULL,
+                note       TEXT    DEFAULT ''
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS premium_quota (
+                ip         TEXT    PRIMARY KEY,
+                requests   INTEGER NOT NULL DEFAULT 0,
+                images     INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS push_subscriptions (
                 id       INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts       TEXT    NOT NULL,
@@ -52,6 +70,82 @@ def get_conn():
         raise
     finally:
         conn.close()
+
+
+def redeem_code(code: str, ip: str) -> dict:
+    """Đổi mã premium. Trả về {"ok": True/False, "reason": ..., "requests": n, "images": n}"""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT requests, images, used_by FROM premium_codes WHERE code=?", (code.upper(),)
+        ).fetchone()
+        if not row:
+            return {"ok": False, "reason": "Mã không hợp lệ"}
+        if row["used_by"]:
+            return {"ok": False, "reason": "Mã đã được sử dụng"}
+        from datetime import datetime
+        conn.execute(
+            "UPDATE premium_codes SET used_by=?, used_at=? WHERE code=?",
+            (ip, datetime.now().isoformat(timespec="seconds"), code.upper()),
+        )
+        conn.execute("""
+            INSERT INTO premium_quota (ip, requests, images) VALUES (?, ?, ?)
+            ON CONFLICT(ip) DO UPDATE SET
+                requests = requests + excluded.requests,
+                images   = images   + excluded.images
+        """, (ip, row["requests"], row["images"]))
+    return {"ok": True, "requests": row["requests"], "images": row["images"]}
+
+
+def get_premium_quota(ip: str) -> dict:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT requests, images FROM premium_quota WHERE ip=?", (ip,)
+        ).fetchone()
+    return dict(row) if row else {"requests": 0, "images": 0}
+
+
+def consume_premium(ip: str, is_image: bool = False) -> bool:
+    """Trừ 1 quota premium. Trả True nếu còn quota."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT requests, images FROM premium_quota WHERE ip=?", (ip,)
+        ).fetchone()
+        if not row:
+            return False
+        if is_image:
+            if row["images"] <= 0:
+                return False
+            conn.execute(
+                "UPDATE premium_quota SET images=images-1 WHERE ip=?", (ip,)
+            )
+        else:
+            if row["requests"] <= 0:
+                return False
+            conn.execute(
+                "UPDATE premium_quota SET requests=requests-1 WHERE ip=?", (ip,)
+            )
+    return True
+
+
+def create_premium_code(code: str, requests: int, images: int, note: str = "") -> bool:
+    from datetime import datetime
+    with get_conn() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO premium_codes (code, requests, images, created_at, note) VALUES (?,?,?,?,?)",
+                (code.upper(), requests, images, datetime.now().isoformat(timespec="seconds"), note),
+            )
+            return True
+        except Exception:
+            return False
+
+
+def list_premium_codes() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT code, requests, images, used_by, used_at, created_at, note FROM premium_codes ORDER BY created_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def save_push_subscription(ts: str, endpoint: str, p256dh: str, auth: str) -> None:

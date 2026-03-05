@@ -105,6 +105,40 @@
       font-size: 18px; cursor: pointer; padding: 4px; flex-shrink: 0;
     }
 
+    /* ── Modal nhập mã premium ── */
+    .redeem-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6); z-index: 100;
+      align-items: flex-end; justify-content: center;
+    }
+    .redeem-overlay.show { display: flex; }
+    .redeem-modal {
+      background: white; border-radius: 20px 20px 0 0;
+      padding: 24px 20px 36px;
+      width: 100%; max-width: 480px;
+      animation: slideUp 0.3s ease;
+    }
+    .redeem-modal h2 { font-size: 18px; font-weight: 700; color: #1b5e20; margin-bottom: 6px; }
+    .redeem-modal p  { font-size: 13px; color: #666; margin-bottom: 16px; }
+    .redeem-input {
+      width: 100%; border: 2px solid #c8e6c9; border-radius: 12px;
+      padding: 12px 16px; font-size: 16px; font-family: inherit;
+      text-transform: uppercase; letter-spacing: 2px;
+      outline: none; margin-bottom: 12px; text-align: center;
+    }
+    .redeem-input:focus { border-color: #2e7d32; }
+    .redeem-submit {
+      width: 100%; background: linear-gradient(135deg,#2e7d32,#43a047);
+      color: white; border: none; border-radius: 12px;
+      padding: 14px; font-size: 15px; font-weight: 700;
+      cursor: pointer; font-family: inherit; margin-bottom: 8px;
+    }
+    .redeem-cancel {
+      width: 100%; background: none; border: none;
+      color: #999; font-size: 14px; cursor: pointer; padding: 8px;
+    }
+    .redeem-msg { font-size: 13px; text-align: center; margin-top: 8px; min-height: 20px; }
+
     /* ── Modal hướng dẫn cài iOS ── */
     .ios-overlay {
       display: none;
@@ -399,6 +433,18 @@
       </div>
 
       <button class="ios-close-btn" onclick="closeIosModal()">Đã hiểu, thử ngay!</button>
+    </div>
+  </div>
+
+  <!-- Modal nhập mã premium -->
+  <div class="redeem-overlay" id="redeemOverlay">
+    <div class="redeem-modal">
+      <h2>🎟️ Nhập mã để dùng thêm</h2>
+      <p>Liên hệ admin để mua mã. Mỗi mã dùng được 1 lần.</p>
+      <input class="redeem-input" id="redeemInput" placeholder="VD: TOMATO30" maxlength="20" />
+      <button class="redeem-submit" onclick="submitCode()">Kích hoạt mã</button>
+      <button class="redeem-cancel" onclick="closeRedeemModal()">Đóng</button>
+      <div class="redeem-msg" id="redeemMsg"></div>
     </div>
   </div>
 
@@ -801,6 +847,61 @@ Bà con cũng có thể <b>chụp ảnh lá/quả bị bệnh</b> gửi lên, t�
 
   initPush();
 
+  /* ── Premium / mã kích hoạt ── */
+  function showQuotaExceeded(type) {
+    const msg = type === 'image'
+      ? '📷 Bạn đã dùng hết 2 ảnh miễn phí hôm nay.\n\nNhập mã để gửi thêm ảnh, hoặc hỏi bằng văn bản mô tả triệu chứng nhé!'
+      : '🍅 Bạn đã dùng hết 5 câu hỏi miễn phí hôm nay.\n\nNhập mã để tiếp tục, hoặc quay lại vào ngày mai!';
+    const div = document.createElement('div');
+    div.className = 'msg-bot';
+    div.innerHTML = `
+      <div class="bot-avatar">🍅</div>
+      <div class="bubble">${msg.replace(/\n/g,'<br>')}
+        <br><br>
+        <button onclick="openRedeemModal()" style="background:#2e7d32;color:white;border:none;border-radius:20px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;">🎟️ Nhập mã kích hoạt</button>
+      </div>`;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function openRedeemModal() {
+    document.getElementById('redeemInput').value = '';
+    document.getElementById('redeemMsg').textContent = '';
+    document.getElementById('redeemOverlay').classList.add('show');
+    setTimeout(() => document.getElementById('redeemInput').focus(), 100);
+  }
+
+  function closeRedeemModal() {
+    document.getElementById('redeemOverlay').classList.remove('show');
+  }
+
+  async function submitCode() {
+    const code = document.getElementById('redeemInput').value.trim();
+    const msg  = document.getElementById('redeemMsg');
+    if (!code) return;
+    msg.style.color = '#888';
+    msg.textContent = 'Đang kiểm tra...';
+    try {
+      const res = await fetch('/api/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        msg.style.color = '#2e7d32';
+        msg.textContent = `✓ Kích hoạt thành công! +${data.requests} câu hỏi${data.images ? ` · +${data.images} ảnh` : ''}.`;
+        setTimeout(closeRedeemModal, 2000);
+      } else {
+        msg.style.color = '#ef5350';
+        msg.textContent = '✗ ' + (data.detail || 'Mã không hợp lệ');
+      }
+    } catch {
+      msg.style.color = '#ef5350';
+      msg.textContent = '✗ Lỗi kết nối';
+    }
+  }
+
   function quickAsk(btn) {
     const text = btn.textContent.replace(/^[\p{Emoji}\s]+/u, '').trim();
     inputEl.value = text;
@@ -830,6 +931,20 @@ Bà con cũng có thể <b>chụp ảnh lá/quả bị bệnh</b> gửi lên, t�
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, image, history }),
       });
+
+      if (res.status === 429) {
+        const err = await res.json();
+        removeTyping();
+        if (err.detail === 'QUOTA_EXCEEDED') {
+          showQuotaExceeded('text');
+        } else if (err.detail === 'IMAGE_QUOTA_EXCEEDED') {
+          showQuotaExceeded('image');
+        } else {
+          addBotMessage('⏳ ' + (err.detail || 'Quá nhiều yêu cầu. Vui lòng thử lại sau.'));
+        }
+        return;
+      }
+
       const data = await res.json();
       const answer = data.answer || 'Xin lỗi, có lỗi xảy ra.';
       removeTyping();

@@ -184,6 +184,36 @@
     </div>
   </div>
 
+  <!-- Premium Codes -->
+  <div class="card">
+    <h2>🎟️ Quản lý mã premium</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">Tạo mã để bán cho người dùng muốn dùng thêm sau khi hết quota miễn phí.</p>
+
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;">
+      <div style="display:flex;gap:8px;">
+        <input id="codeInput" type="text" placeholder="Mã (vd: TOMATO30)" maxlength="20"
+          style="flex:1;border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;text-transform:uppercase;" />
+        <input id="codeRequests" type="number" placeholder="Câu hỏi" min="1" value="30"
+          style="width:90px;border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 10px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
+        <input id="codeImages" type="number" placeholder="Ảnh" min="0" value="5"
+          style="width:70px;border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 10px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
+      </div>
+      <input id="codeNote" type="text" placeholder="Ghi chú (vd: Nguyễn Văn A - 20k)"
+        style="border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillCode('PLUS30',30,5,'Gói 30 câu')">Mẫu: Gói nhỏ</button>
+      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillCode('VIP100',100,20,'Gói 100 câu')">Mẫu: Gói lớn</button>
+    </div>
+    <button class="btn" onclick="createCode()">➕ Tạo mã</button>
+    <div id="codeResult" style="margin-top:10px;font-size:13px;"></div>
+
+    <div style="margin-top:20px;">
+      <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:10px;">Danh sách mã đã tạo</div>
+      <div id="codeList"><div class="empty">Đang tải...</div></div>
+    </div>
+  </div>
+
   <!-- Push Notifications -->
   <div class="card" id="pushCard">
     <h2>🔔 Gửi thông báo đẩy</h2>
@@ -410,6 +440,51 @@
   loadAnalytics();
   loadFeedback();
   checkPushEnabled();
+  loadCodes();
+
+  function fillCode(code, requests, images, note) {
+    document.getElementById('codeInput').value    = code;
+    document.getElementById('codeRequests').value = requests;
+    document.getElementById('codeImages').value   = images;
+    document.getElementById('codeNote').value     = note;
+  }
+
+  async function createCode() {
+    const code     = document.getElementById('codeInput').value.trim().toUpperCase();
+    const requests = parseInt(document.getElementById('codeRequests').value) || 0;
+    const images   = parseInt(document.getElementById('codeImages').value) || 0;
+    const note     = document.getElementById('codeNote').value.trim();
+    const result   = document.getElementById('codeResult');
+    if (!code || requests < 1) { alert('Nhập mã và số câu hỏi'); return; }
+    const res  = await fetch('/admin/premium-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, requests, images, note }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      result.innerHTML = `<span style="color:#2e7d32">✓ Đã tạo mã <b>${data.code}</b></span>`;
+      loadCodes();
+    } else {
+      result.innerHTML = `<span style="color:#ef5350">✗ ${data.error}</span>`;
+    }
+  }
+
+  async function loadCodes() {
+    const res  = await fetch('/admin/premium-codes');
+    const data = await res.json();
+    const list = document.getElementById('codeList');
+    if (!data.codes.length) { list.innerHTML = '<div class="empty">Chưa có mã nào</div>'; return; }
+    list.innerHTML = data.codes.map(c => `
+      <div class="doc-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
+        <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
+          <span style="font-size:15px;font-weight:700;font-family:monospace;color:#1b5e20;">${c.code}</span>
+          <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${c.used_by ? '#ffebee' : '#e8f5e9'};color:${c.used_by ? '#ef5350' : '#2e7d32'};">${c.used_by ? 'Đã dùng' : 'Chưa dùng'}</span>
+        </div>
+        <div style="font-size:12px;color:#555;">+${c.requests} câu hỏi · +${c.images} ảnh${c.note ? ' · ' + c.note : ''}</div>
+        ${c.used_by ? `<div style="font-size:11px;color:#aaa;">IP: ${c.used_by} · ${c.used_at}</div>` : ''}
+      </div>`).join('');
+  }
 
   async function checkPushEnabled() {
     const res = await fetch('/api/vapid-public-key').catch(() => null);

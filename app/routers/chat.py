@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.services import llm, rag as rag_module
-from app.database import save_feedback, save_question
+from app.database import save_feedback, save_question, get_premium_quota, consume_premium, redeem_code
 
 router = APIRouter()
 
@@ -34,30 +34,29 @@ def _check_rate(ip: str, has_image: bool = False) -> None:
     now   = time.time()
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Giới hạn ngày (tổng)
+    # Giới hạn ngày (tổng) — kiểm tra premium trước
     date, count = _daily_log.get(ip, ("", 0))
-    if date == today:
-        if count >= DAILY_LIMIT:
+    if date == today and count >= DAILY_LIMIT:
+        # Hết quota miễn phí → thử dùng premium
+        if not consume_premium(ip, is_image=False):
             raise HTTPException(
                 status_code=429,
-                detail="Bạn đã dùng hết 5 câu hỏi miễn phí hôm nay. Vui lòng quay lại vào ngày mai nhé! 🍅",
+                detail="QUOTA_EXCEEDED",
             )
-        _daily_log[ip] = (today, count + 1)
     else:
-        _daily_log[ip] = (today, 1)
+        _daily_log[ip] = (today, count + 1) if date == today else (today, 1)
 
     # Giới hạn ảnh/ngày
     if has_image:
         idate, icount = _image_log.get(ip, ("", 0))
-        if idate == today:
-            if icount >= IMAGE_LIMIT:
+        if idate == today and icount >= IMAGE_LIMIT:
+            if not consume_premium(ip, is_image=True):
                 raise HTTPException(
                     status_code=429,
-                    detail="Bạn đã gửi đủ 2 ảnh miễn phí hôm nay. Vui lòng quay lại vào ngày mai nhé! 📷",
+                    detail="IMAGE_QUOTA_EXCEEDED",
                 )
-            _image_log[ip] = (today, icount + 1)
         else:
-            _image_log[ip] = (today, 1)
+            _image_log[ip] = (today, icount + 1) if idate == today else (today, 1)
 
     # Giới hạn phút
     timestamps = [t for t in _request_log[ip] if now - t < WINDOW]
@@ -127,6 +126,28 @@ class FeedbackRequest(BaseModel):
     answer: str   = ""
     rating: int
 
+
+class RedeemRequest(BaseModel):
+    code: str
+
+@router.post("/api/redeem")
+async def api_redeem(req: RedeemRequest, request: Request):
+    result = redeem_code(req.code.strip(), request.client.host)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["reason"])
+    return JSONResponse(result)
+
+@router.get("/api/quota")
+async def api_quota(request: Request):
+    ip    = request.client.host
+    today = datetime.now().strftime("%Y-%m-%d")
+    _, used_q = _daily_log.get(ip, ("", 0))
+    _, used_i = _image_log.get(ip, ("", 0))
+    premium   = get_premium_quota(ip)
+    return JSONResponse({
+        "free":    {"requests": max(0, DAILY_LIMIT - used_q), "images": max(0, IMAGE_LIMIT - used_i)},
+        "premium": premium,
+    })
 
 @router.post("/api/feedback")
 async def api_feedback(req: FeedbackRequest):

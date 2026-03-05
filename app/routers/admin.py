@@ -13,7 +13,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 from app.config import ADMIN_USER, ADMIN_PASSWORD
-from app.database import get_feedback_stats, get_analytics
+from app.database import get_feedback_stats, get_analytics, create_premium_code, list_premium_codes
 from app.services import rag as rag_module
 
 router  = APIRouter()
@@ -181,6 +181,23 @@ async def list_docs(_: None = Depends(require_admin)):
 async def feedback_report(_: None = Depends(require_admin)):
     return JSONResponse(get_feedback_stats())
 
+
+class PremiumCodeRequest(BaseModel):
+    code: str
+    requests: int
+    images: int = 0
+    note: str = ""
+
+@router.post("/admin/premium-code")
+async def create_code(req: PremiumCodeRequest, _: None = Depends(require_admin)):
+    ok = create_premium_code(req.code, req.requests, req.images, req.note)
+    if not ok:
+        return JSONResponse({"ok": False, "error": "Mã đã tồn tại"})
+    return JSONResponse({"ok": True, "code": req.code.upper()})
+
+@router.get("/admin/premium-codes")
+async def get_codes(_: None = Depends(require_admin)):
+    return JSONResponse({"codes": list_premium_codes()})
 
 @router.get("/admin/analytics")
 async def analytics_report(_: None = Depends(require_admin)):
