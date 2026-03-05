@@ -4,10 +4,13 @@ Hỗ trợ: text, hình ảnh (vision), lịch sử hội thoại, trích xuất
 """
 
 import hashlib
+import logging
 import time
 from datetime import datetime
 import httpx
 from app.config import OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_MODEL_FAST
+
+log = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT_TEMPLATE = """Bạn là chuyên gia tư vấn trồng cà chua cho nông dân Việt Nam. Hiện tại: tháng {month}/{year}.
@@ -146,12 +149,16 @@ async def _call(messages: list[dict], model: str = OPENROUTER_MODEL_FAST,
 
     try:
         response.raise_for_status()
+    except httpx.HTTPStatusError:
+        log.error("OpenRouter HTTP %s: %s", response.status_code, response.text[:500])
+        raise LLMError("http")
+
+    try:
         data = response.json()
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError):
+        log.error("OpenRouter response thiếu choices: %s", response.text[:500])
         raise LLMError("response")
-    except httpx.HTTPStatusError:
-        raise LLMError("http")
 
 
 async def chat(
