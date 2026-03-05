@@ -23,7 +23,7 @@ def _get(key: str, default: str = "") -> str:
 # LLM
 OPENROUTER_API_KEY  = _require("OPENROUTER_API_KEY")
 OPENROUTER_MODEL    = _get("OPENROUTER_MODEL",      "anthropic/claude-sonnet-4-5")
-OPENROUTER_MODEL_FAST = _get("OPENROUTER_MODEL_FAST", "anthropic/claude-haiku-4-5-20251001")
+OPENROUTER_MODEL_FAST = _get("OPENROUTER_MODEL_FAST", "anthropic/claude-haiku-4-5")
 
 # Zalo (tuỳ chọn — chỉ cần khi dùng Zalo OA)
 ZALO_OA_ACCESS_TOKEN = _get("ZALO_OA_ACCESS_TOKEN")
