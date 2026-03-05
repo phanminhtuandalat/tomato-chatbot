@@ -148,6 +148,41 @@ async def admin_upload_url(req: UrlRequest):
 class DeleteRequest(BaseModel):
     filename: str
 
+@app.post("/admin/upload-image")
+async def admin_upload_image(file: UploadFile = File(...), title: str = ""):
+    ext = Path(file.filename).suffix.lower()
+    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        return JSONResponse({"ok": False, "error": "Chỉ hỗ trợ ảnh JPG, PNG, WEBP"})
+
+    import base64
+    raw = await file.read()
+    mime = "image/jpeg" if ext in (".jpg", ".jpeg") else f"image/{ext[1:]}"
+    b64 = base64.b64encode(raw).decode()
+    data_url = f"data:{mime};base64,{b64}"
+
+    doc_title = title.strip() or Path(file.filename).stem.replace("_", " ").replace("-", " ").title()
+
+    # Dùng vision AI để trích xuất kiến thức từ ảnh
+    try:
+        extracted = await claude_client.ask(
+            question="",
+            context="",
+            image_base64=data_url,
+            extract_mode=True,
+        )
+        if len(extracted) < 50:
+            return JSONResponse({"ok": False, "error": "Không trích xuất được nội dung từ ảnh"})
+
+        from ingest import save_to_knowledge_base, clean_text
+        content = clean_text(extracted)
+        out = save_to_knowledge_base(doc_title, content, file.filename)
+        reload_kb()
+        return JSONResponse({"ok": True, "filename": out.name, "chars": len(content), "preview": content[:200]})
+    except Exception as e:
+        logger.error(e)
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 @app.post("/admin/delete")
 async def admin_delete(req: DeleteRequest):
     # Chỉ cho phép xoá file trong thư mục data/

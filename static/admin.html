@@ -108,6 +108,28 @@
     </div>
   </div>
 
+  <!-- Upload ảnh -->
+  <div class="card">
+    <h2>🖼️ Trích xuất kiến thức từ ảnh</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">Chụp/upload ảnh trang sách, infographic, bảng bón phân, ảnh sâu bệnh — AI sẽ đọc và lưu kiến thức vào kho.</p>
+    <div style="display:flex;gap:10px;margin-bottom:12px;">
+      <input type="text" id="imgTitle" placeholder="Tên tài liệu (tuỳ chọn)..." style="flex:1;border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
+    </div>
+    <div class="drop-zone" id="imgDropZone" onclick="document.getElementById('imgInput').click()">
+      <div class="icon">🖼️</div>
+      <p><strong>Bấm để chọn ảnh</strong> hoặc kéo thả vào đây</p>
+      <p style="margin-top:6px;color:#aaa;font-size:13px;">JPG, PNG, WEBP — ảnh chụp sách, infographic, bảng biểu</p>
+      <input type="file" id="imgInput" accept="image/*" onchange="uploadImage(event)" />
+    </div>
+    <div id="imgPreviewWrap" style="display:none;margin-top:12px;display:none;align-items:center;gap:12px;">
+      <img id="imgPreview" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid #a5d6a7;" />
+      <div>
+        <div id="imgPreviewName" style="font-size:13px;font-weight:600;"></div>
+        <div style="font-size:12px;color:#888;margin-top:3px;">AI đang đọc và trích xuất kiến thức...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Thêm URL -->
   <div class="card">
     <h2>🔗 Thêm từ URL</h2>
@@ -148,6 +170,52 @@
     const file = e.dataTransfer.files[0];
     if (file) sendFile(file);
   });
+
+  // Kéo thả ảnh
+  const imgDropZone = document.getElementById('imgDropZone');
+  imgDropZone.addEventListener('dragover', e => { e.preventDefault(); imgDropZone.classList.add('drag'); });
+  imgDropZone.addEventListener('dragleave', () => imgDropZone.classList.remove('drag'));
+  imgDropZone.addEventListener('drop', e => {
+    e.preventDefault(); imgDropZone.classList.remove('drag');
+    const file = e.dataTransfer.files[0];
+    if (file) processImage(file);
+  });
+
+  async function uploadImage(e) {
+    const file = e.target.files[0];
+    if (file) await processImage(file);
+    e.target.value = '';
+  }
+
+  async function processImage(file) {
+    const title = document.getElementById('imgTitle').value.trim();
+    const preview = document.getElementById('imgPreviewWrap');
+    const previewImg = document.getElementById('imgPreview');
+    const previewName = document.getElementById('imgPreviewName');
+
+    previewImg.src = URL.createObjectURL(file);
+    previewName.textContent = file.name;
+    preview.style.display = 'flex';
+
+    writeLog(`Đang phân tích ảnh: ${file.name} (AI đang đọc...)`);
+
+    const form = new FormData();
+    form.append('file', file);
+    if (title) form.append('title', title);
+
+    try {
+      const res = await fetch('/admin/upload-image', { method: 'POST', body: form });
+      const data = await res.json();
+      preview.style.display = 'none';
+      if (data.ok) {
+        writeLog(`Đã trích xuất: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
+        if (data.preview) writeLog(`Nội dung: ${data.preview}...`);
+        loadDocs();
+      } else {
+        writeLog(data.error || 'Lỗi không xác định', 'error');
+      }
+    } catch { preview.style.display = 'none'; writeLog('Lỗi kết nối', 'error'); }
+  }
 
   async function uploadFile(e) {
     const file = e.target.files[0];

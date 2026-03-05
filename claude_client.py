@@ -37,11 +37,49 @@ def get_system_prompt() -> str:
     return SYSTEM_PROMPT_TEMPLATE.format(month=now.month, year=now.year)
 
 
-async def ask(question: str, context: str = "", image_base64: str = "") -> str:
+EXTRACT_PROMPT = """Bạn là chuyên gia nông nghiệp. Hãy đọc ảnh này và trích xuất toàn bộ kiến thức nông nghiệp có trong đó.
+
+Yêu cầu:
+- Viết bằng tiếng Việt, rõ ràng, đầy đủ
+- Giữ nguyên các số liệu, tên thuốc, liều lượng
+- Tổ chức thành các mục rõ ràng với tiêu đề
+- Nếu là ảnh bệnh/sâu: mô tả triệu chứng, nguyên nhân, cách xử lý
+- Nếu là bảng/infographic: chuyển thành văn bản có cấu trúc
+- Nếu là trang sách: trích xuất toàn bộ nội dung
+
+Chỉ trả về nội dung đã trích xuất, không thêm lời mở đầu hay kết."""
+
+
+async def ask(question: str, context: str = "", image_base64: str = "", extract_mode: bool = False) -> str:
     """
     Gọi OpenRouter API.
     - image_base64: chuỗi base64 data URL (data:image/jpeg;base64,...)
     """
+    if image_base64 and extract_mode:
+        # Chế độ trích xuất kiến thức từ ảnh để lưu vào knowledge base
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://chatbot-ca-chua.app",
+                    "X-Title": "Chatbot Ca Chua",
+                },
+                json={
+                    "model": MODEL,
+                    "max_tokens": 2048,
+                    "messages": [
+                        {"role": "user", "content": [
+                            {"type": "image_url", "image_url": {"url": image_base64}},
+                            {"type": "text", "text": EXTRACT_PROMPT},
+                        ]},
+                    ],
+                },
+            )
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
+
     if image_base64:
         text = question or "Bạn hãy phân tích ảnh cây cà chua này và cho biết có vấn đề gì không?"
         if context:
