@@ -130,11 +130,13 @@ class RAGService:
 # ---------------------------------------------------------------------------
 
 def _build_bm25(corpus: list[list[str]]):
+    if not corpus:
+        return None
     try:
-        from rank_bm25 import BM25Plus  # IDF luôn dương, tốt hơn BM25Okapi với corpus nhỏ
+        from rank_bm25 import BM25Plus
         return BM25Plus(corpus)
     except ImportError:
-        return None  # fallback
+        return None
 
 
 def _score(bm25, chunks: list[dict], query_tokens: list[str]) -> list[float]:

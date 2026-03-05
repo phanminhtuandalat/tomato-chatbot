@@ -29,8 +29,16 @@ app.include_router(push.router)
 
 @app.on_event("startup")
 async def startup():
+    import shutil
     from pathlib import Path
-    Path("data").mkdir(exist_ok=True)
+    data_dir = Path("data")
+    data_dir.mkdir(exist_ok=True)
+    # Nếu Volume mới toanh (chưa có .md) → copy knowledge base từ repo vào
+    seed_dir = Path("data_seed")
+    if seed_dir.exists() and not any(data_dir.glob("*.md")):
+        for f in seed_dir.glob("*.md"):
+            shutil.copy(f, data_dir / f.name)
+        logging.info("Copied seed knowledge base to data/")
     init_db()
 
 
