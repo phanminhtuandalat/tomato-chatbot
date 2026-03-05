@@ -105,6 +105,43 @@ async def api_chat(req: ChatRequest):
 
 
 # ---------------------------------------------------------------------------
+# Feedback API
+# ---------------------------------------------------------------------------
+
+FEEDBACK_FILE = Path(__file__).parent / "data" / "feedback.jsonl"
+
+class FeedbackRequest(BaseModel):
+    question: str
+    answer: str
+    rating: int  # 1 = tốt, -1 = chưa đúng
+
+@app.post("/api/feedback")
+async def api_feedback(req: FeedbackRequest):
+    entry = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "rating": req.rating,
+        "question": req.question[:300],
+        "answer": req.answer[:500],
+    }
+    with open(FEEDBACK_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return JSONResponse({"ok": True})
+
+@app.get("/admin/feedback")
+async def admin_feedback(_: None = Depends(require_admin)):
+    if not FEEDBACK_FILE.exists():
+        return JSONResponse({"items": [], "total": 0, "good": 0, "bad": 0})
+    items = []
+    for line in FEEDBACK_FILE.read_text(encoding="utf-8").strip().splitlines():
+        try: items.append(json.loads(line))
+        except: pass
+    items.reverse()
+    good = sum(1 for i in items if i["rating"] == 1)
+    bad  = sum(1 for i in items if i["rating"] == -1)
+    return JSONResponse({"items": items[:50], "total": len(items), "good": good, "bad": bad})
+
+
+# ---------------------------------------------------------------------------
 # Admin API — quản lý knowledge base
 # ---------------------------------------------------------------------------
 
