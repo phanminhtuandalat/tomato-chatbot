@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.services import llm, rag as rag_module
-from app.database import save_feedback
+from app.database import save_feedback, save_question
 
 router = APIRouter()
 
@@ -60,6 +60,14 @@ async def api_chat(req: ChatRequest, request: Request):
 
     if not question and not image:
         return JSONResponse({"answer": ""})
+
+    # Log câu hỏi để analytics
+    if question:
+        save_question(
+            ts=datetime.now().isoformat(timespec="seconds"),
+            question=question,
+            has_image=bool(image),
+        )
 
     context = rag_module.rag.search(question) if question else ""
     history = [{"role": m.role, "content": m.content} for m in req.history]

@@ -13,7 +13,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 from app.config import ADMIN_USER, ADMIN_PASSWORD
-from app.database import get_feedback_stats
+from app.database import get_feedback_stats, get_analytics
 from app.services import rag as rag_module
 
 router  = APIRouter()
@@ -180,3 +180,8 @@ async def list_docs(_: None = Depends(require_admin)):
 @router.get("/admin/feedback")
 async def feedback_report(_: None = Depends(require_admin)):
     return JSONResponse(get_feedback_stats())
+
+
+@router.get("/admin/analytics")
+async def analytics_report(_: None = Depends(require_admin)):
+    return JSONResponse(get_analytics())

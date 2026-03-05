@@ -89,6 +89,40 @@
     .back-link:hover { text-decoration: underline; }
 
     .empty { color: #aaa; font-size: 14px; text-align: center; padding: 16px; }
+
+    /* Analytics */
+    .stat-row { display: flex; gap: 12px; margin-bottom: 20px; }
+    .stat-box {
+      flex: 1; background: #f9fbe7; border-radius: 12px;
+      padding: 14px 12px; text-align: center;
+      border: 1.5px solid #c8e6c9;
+    }
+    .stat-box .num { font-size: 28px; font-weight: 700; color: #2e7d32; }
+    .stat-box .lbl { font-size: 12px; color: #888; margin-top: 4px; }
+
+    .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 80px; margin-bottom: 6px; }
+    .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .bar { width: 100%; background: #a5d6a7; border-radius: 4px 4px 0 0; min-height: 4px; transition: background 0.2s; }
+    .bar:hover { background: #2e7d32; }
+    .bar-lbl { font-size: 10px; color: #999; white-space: nowrap; }
+    .bar-val { font-size: 10px; color: #555; font-weight: 600; }
+
+    .keyword-cloud { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+    .kw-tag {
+      background: #e8f5e9; color: #2e7d32;
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 13px; font-weight: 500;
+      border: 1px solid #a5d6a7;
+    }
+    .kw-tag.big { font-size: 15px; font-weight: 700; background: #c8e6c9; }
+
+    .q-item {
+      padding: 10px 12px; background: #f9f9f9;
+      border-radius: 10px; border: 1px solid #eee;
+      margin-bottom: 8px;
+    }
+    .q-item .q-text { font-size: 13px; color: #333; }
+    .q-item .q-meta { font-size: 11px; color: #aaa; margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -146,6 +180,35 @@
   <div class="card">
     <h2>📚 Tài liệu trong kho (<span id="docCount">0</span>)</h2>
     <div class="doc-list" id="docList">
+      <div class="empty">Đang tải...</div>
+    </div>
+  </div>
+
+  <!-- Analytics -->
+  <div class="card">
+    <h2>📈 Phân tích câu hỏi</h2>
+    <div class="stat-row">
+      <div class="stat-box">
+        <div class="num" id="aTotalQ">-</div>
+        <div class="lbl">Tổng câu hỏi</div>
+      </div>
+      <div class="stat-box">
+        <div class="num" id="aTotalImg">-</div>
+        <div class="lbl">Gửi kèm ảnh</div>
+      </div>
+    </div>
+
+    <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:10px;">Câu hỏi 7 ngày qua</div>
+    <div class="bar-chart" id="barChart"></div>
+    <div style="display:flex;gap:6px;" id="barLabels"></div>
+
+    <div style="font-size:13px;font-weight:600;color:#555;margin:16px 0 10px;">Từ khoá phổ biến</div>
+    <div class="keyword-cloud" id="keywordCloud">
+      <div class="empty">Đang tải...</div>
+    </div>
+
+    <div style="font-size:13px;font-weight:600;color:#555;margin:16px 0 10px;">Câu hỏi gần nhất</div>
+    <div id="recentQuestions">
       <div class="empty">Đang tải...</div>
     </div>
   </div>
@@ -322,7 +385,66 @@
   }
 
   loadDocs();
+  loadAnalytics();
   loadFeedback();
+
+  async function loadAnalytics() {
+    const res = await fetch('/admin/analytics');
+    const d = await res.json();
+
+    document.getElementById('aTotalQ').textContent   = d.total_questions;
+    document.getElementById('aTotalImg').textContent = d.total_with_image;
+
+    // Bar chart 7 ngày
+    const maxCount = Math.max(1, ...d.daily.map(x => x.count));
+    const chart  = document.getElementById('barChart');
+    const labels = document.getElementById('barLabels');
+
+    // Tạo đủ 7 ngày kể cả ngày 0 câu hỏi
+    const days = {};
+    for (let i = 6; i >= 0; i--) {
+      const dt = new Date(); dt.setDate(dt.getDate() - i);
+      const key = dt.toISOString().slice(0,10);
+      days[key] = 0;
+    }
+    d.daily.forEach(x => { if (days[x.day] !== undefined) days[x.day] = x.count; });
+
+    chart.innerHTML = Object.entries(days).map(([day, cnt]) => {
+      const h = Math.max(4, Math.round((cnt / maxCount) * 72));
+      const label = day.slice(5); // MM-DD
+      return `<div class="bar-col">
+        <div class="bar-val">${cnt || ''}</div>
+        <div class="bar" style="height:${h}px" title="${cnt} câu hỏi ngày ${day}"></div>
+      </div>`;
+    }).join('');
+
+    labels.innerHTML = Object.keys(days).map(day =>
+      `<div style="flex:1;text-align:center;font-size:10px;color:#999;">${day.slice(5)}</div>`
+    ).join('');
+
+    // Từ khoá
+    const cloud = document.getElementById('keywordCloud');
+    if (!d.top_keywords.length) {
+      cloud.innerHTML = '<div class="empty">Chưa có dữ liệu</div>';
+    } else {
+      const maxKw = d.top_keywords[0].count;
+      cloud.innerHTML = d.top_keywords.map(k =>
+        `<span class="kw-tag ${k.count >= maxKw * 0.6 ? 'big' : ''}">${k.word} <b>${k.count}</b></span>`
+      ).join('');
+    }
+
+    // Câu hỏi gần nhất
+    const recent = document.getElementById('recentQuestions');
+    if (!d.recent.length) {
+      recent.innerHTML = '<div class="empty">Chưa có câu hỏi nào</div>';
+    } else {
+      recent.innerHTML = d.recent.map(q => `
+        <div class="q-item">
+          <div class="q-text">${q.has_image ? '📷 ' : ''}${q.question}</div>
+          <div class="q-meta">${q.ts.replace('T', ' ')}</div>
+        </div>`).join('');
+    }
+  }
 
   async function loadFeedback() {
     const res = await fetch('/admin/feedback');
