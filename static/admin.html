@@ -184,6 +184,28 @@
     </div>
   </div>
 
+  <!-- Push Notifications -->
+  <div class="card" id="pushCard">
+    <h2>🔔 Gửi thông báo đẩy</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">Gửi thông báo đến tất cả nông dân đã cài app (PWA) và bật thông báo.</p>
+
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;">
+      <input id="pushTitle" type="text" placeholder="Tiêu đề (vd: Cảnh báo sâu bệnh tháng 4)"
+        style="border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
+      <textarea id="pushBody" rows="2" placeholder="Nội dung thông báo..."
+        style="border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;resize:none;"></textarea>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillPush('🌧️ Mùa mưa đến rồi!','Phun phòng bệnh mốc sương ngay, 7 ngày/lần. Kiểm tra thoát nước vườn.')">Mẫu: mùa mưa</button>
+      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillPush('🌱 Thời điểm xuống giống!','Tháng này là thời điểm tốt để trồng cà chua. Chuẩn bị đất và giống ngay nhé!')">Mẫu: xuống giống</button>
+      <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillPush('🍅 Thu hoạch và giá cả','Kiểm tra vườn, thu hoạch khi quả đỏ 70-80% để vận chuyển xa được.')">Mẫu: thu hoạch</button>
+    </div>
+
+    <button class="btn" onclick="sendPush()" id="pushBtn">📤 Gửi thông báo</button>
+    <div id="pushResult" style="margin-top:10px;font-size:13px;"></div>
+  </div>
+
   <!-- Analytics -->
   <div class="card">
     <h2>📈 Phân tích câu hỏi</h2>
@@ -387,6 +409,64 @@
   loadDocs();
   loadAnalytics();
   loadFeedback();
+  checkPushEnabled();
+
+  async function checkPushEnabled() {
+    const res = await fetch('/api/vapid-public-key').catch(() => null);
+    if (!res?.ok) return;
+    const { enabled } = await res.json();
+    if (!enabled) {
+      document.getElementById('pushCard').innerHTML = `
+        <h2>🔔 Gửi thông báo đẩy</h2>
+        <div style="background:#fff8e1;border-left:4px solid #f9a825;padding:12px 16px;border-radius:8px;font-size:13px;color:#5d4037;">
+          <strong>Chưa cấu hình VAPID keys.</strong><br>
+          Thêm 2 biến môi trường vào Railway:<br><br>
+          <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">VAPID_PUBLIC_KEY</code> và
+          <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">VAPID_PRIVATE_KEY</code><br><br>
+          Chạy lệnh sau để tạo keys: <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">python generate_vapid.py</code>
+        </div>`;
+    }
+  }
+
+  function fillPush(title, body) {
+    document.getElementById('pushTitle').value = title;
+    document.getElementById('pushBody').value = body;
+  }
+
+  async function sendPush() {
+    const title = document.getElementById('pushTitle').value.trim();
+    const body  = document.getElementById('pushBody').value.trim();
+    if (!title || !body) { alert('Vui lòng nhập tiêu đề và nội dung'); return; }
+
+    const btn = document.getElementById('pushBtn');
+    const result = document.getElementById('pushResult');
+    btn.disabled = true;
+    btn.textContent = 'Đang gửi...';
+    result.textContent = '';
+
+    try {
+      const res = await fetch('/admin/push-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body, url: '/' }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        if (data.reason === 'no_subscribers') {
+          result.innerHTML = '<span style="color:#f57c00;">⚠️ Chưa có thiết bị nào đăng ký nhận thông báo.</span>';
+        } else {
+          result.innerHTML = `<span style="color:#2e7d32;">✓ Đã gửi thành công đến <b>${data.sent}</b> thiết bị${data.failed ? ` (${data.failed} lỗi)` : ''}.</span>`;
+        }
+      } else {
+        result.innerHTML = `<span style="color:#ef5350;">✗ ${data.detail || 'Lỗi không xác định'}</span>`;
+      }
+    } catch {
+      result.innerHTML = '<span style="color:#ef5350;">✗ Lỗi kết nối</span>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📤 Gửi thông báo';
+    }
+  }
 
   async function loadAnalytics() {
     const res = await fetch('/admin/analytics');

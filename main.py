@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.routers import chat, admin, zalo
+from app.routers import chat, admin, zalo, push
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,6 +24,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(zalo.router)
+app.include_router(push.router)
 
 
 @app.on_event("startup")

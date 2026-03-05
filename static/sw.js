@@ -18,6 +18,34 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
+self.addEventListener('push', e => {
+  let data = { title: 'Tư Vấn Cà Chua 🍅', body: 'Có thông báo mới từ chuyên gia', url: '/' };
+  try { data = { ...data, ...JSON.parse(e.data.text()) }; } catch {}
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/static/icon-192.png',
+      badge: '/static/icon-192.png',
+      data: { url: data.url },
+      vibrate: [200, 100, 200],
+    })
+  );
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({ type: 'window' }).then(list => {
+      const url = e.notification.data?.url || '/';
+      for (const client of list) {
+        if (client.url.includes(self.location.origin) && 'focus' in client)
+          return client.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(url);
+    })
+  );
+});
+
 self.addEventListener('fetch', e => {
   // Chỉ cache GET requests, không cache API calls
   if (e.request.method !== 'GET') return;

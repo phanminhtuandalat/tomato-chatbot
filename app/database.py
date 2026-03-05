@@ -29,6 +29,15 @@ def init_db() -> None:
                 has_image INTEGER DEFAULT 0
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts       TEXT    NOT NULL,
+                endpoint TEXT    NOT NULL UNIQUE,
+                p256dh   TEXT    NOT NULL,
+                auth     TEXT    NOT NULL
+            )
+        """)
 
 
 @contextmanager
@@ -43,6 +52,26 @@ def get_conn():
         raise
     finally:
         conn.close()
+
+
+def save_push_subscription(ts: str, endpoint: str, p256dh: str, auth: str) -> None:
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO push_subscriptions (ts, endpoint, p256dh, auth)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(endpoint) DO UPDATE SET ts=excluded.ts, p256dh=excluded.p256dh, auth=excluded.auth
+        """, (ts, endpoint, p256dh, auth))
+
+
+def delete_push_subscription(endpoint: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM push_subscriptions WHERE endpoint=?", (endpoint,))
+
+
+def get_all_subscriptions() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT endpoint, p256dh, auth FROM push_subscriptions").fetchall()
+    return [dict(r) for r in rows]
 
 
 def save_question(ts: str, question: str, has_image: bool = False) -> None:

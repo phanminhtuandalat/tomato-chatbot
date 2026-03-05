@@ -32,5 +32,11 @@ ZALO_APP_SECRET      = _get("ZALO_APP_SECRET")
 ADMIN_USER     = _get("ADMIN_USER", "admin")
 ADMIN_PASSWORD = _require("ADMIN_PASSWORD")
 
+# Push notifications (tuỳ chọn — cần VAPID keys)
+VAPID_PUBLIC_KEY  = _get("VAPID_PUBLIC_KEY")
+VAPID_PRIVATE_KEY = _get("VAPID_PRIVATE_KEY")
+VAPID_EMAIL       = _get("VAPID_EMAIL", "mailto:admin@tomato-chatbot.app")
+PUSH_ENABLED      = bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY)
+
 # Server
 PORT = int(_get("PORT", "8000"))
