@@ -1,13 +1,12 @@
 """
-Gọi LLM qua OpenRouter API — hỗ trợ text, hình ảnh, và lịch sử hội thoại.
+LLM Service — gọi OpenRouter API.
+Hỗ trợ: text, hình ảnh (vision), lịch sử hội thoại, trích xuất kiến thức từ ảnh.
 """
 
-import os
 from datetime import datetime
 import httpx
+from app.config import OPENROUTER_API_KEY, OPENROUTER_MODEL
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4-5")
 
 SYSTEM_PROMPT_TEMPLATE = """Bạn là chuyên gia nông nghiệp hỗ trợ nông dân trồng cà chua tại Việt Nam.
 
@@ -44,76 +43,9 @@ Yêu cầu:
 Chỉ trả về nội dung đã trích xuất, không thêm lời mở đầu hay kết."""
 
 
-def get_system_prompt() -> str:
+def _system_prompt() -> str:
     now = datetime.now()
     return SYSTEM_PROMPT_TEMPLATE.format(month=now.month, year=now.year)
-
-
-async def ask(
-    question: str,
-    context: str = "",
-    image_base64: str = "",
-    extract_mode: bool = False,
-    history: list[dict] | None = None,
-) -> str:
-    """
-    Gọi OpenRouter API.
-    - history: danh sách {"role": "user"/"assistant", "content": "..."}
-    - image_base64: data URL ảnh
-    - extract_mode: trích xuất kiến thức từ ảnh để lưu vào knowledge base
-    """
-
-    # ── Chế độ trích xuất ảnh vào knowledge base ──
-    if image_base64 and extract_mode:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=_headers(),
-                json={
-                    "model": MODEL,
-                    "max_tokens": 2048,
-                    "messages": [{"role": "user", "content": [
-                        {"type": "image_url", "image_url": {"url": image_base64}},
-                        {"type": "text", "text": EXTRACT_PROMPT},
-                    ]}],
-                },
-            )
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
-
-    # ── Xây dựng nội dung tin nhắn mới ──
-    if image_base64:
-        text = question or "Phân tích ảnh cây cà chua này và cho biết có vấn đề gì không?"
-        if context:
-            text += f"\n\n---\nTài liệu tham khảo:\n{context}"
-        new_user_content = [
-            {"type": "image_url", "image_url": {"url": image_base64}},
-            {"type": "text", "text": text},
-        ]
-    else:
-        if context:
-            new_user_content = (
-                f"Câu hỏi: {question}\n\n"
-                f"---\nTài liệu tham khảo:\n{context}\n---\n\n"
-                f"Trả lời dựa trên tài liệu, có tính đến mùa vụ hiện tại."
-            )
-        else:
-            new_user_content = question
-
-    # ── Ghép lịch sử hội thoại ──
-    messages = [{"role": "system", "content": get_system_prompt()}]
-    if history:
-        messages.extend(history)
-    messages.append({"role": "user", "content": new_user_content})
-
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=_headers(),
-            json={"model": MODEL, "max_tokens": 1024, "messages": messages},
-        )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
 
 
 def _headers() -> dict:
@@ -123,3 +55,56 @@ def _headers() -> dict:
         "HTTP-Referer": "https://chatbot-ca-chua.app",
         "X-Title": "Chatbot Ca Chua",
     }
+
+
+async def _call(messages: list[dict], max_tokens: int = 1024) -> str:
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=_headers(),
+            json={"model": OPENROUTER_MODEL, "max_tokens": max_tokens, "messages": messages},
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+
+
+async def chat(
+    question: str,
+    context: str = "",
+    image_base64: str = "",
+    history: list[dict] | None = None,
+) -> str:
+    """Trả lời câu hỏi của nông dân, có kèm context RAG và lịch sử hội thoại."""
+    if image_base64:
+        text = question or "Phân tích ảnh cây cà chua này và cho biết có vấn đề gì không?"
+        if context:
+            text += f"\n\n---\nTài liệu tham khảo:\n{context}"
+        user_content = [
+            {"type": "image_url", "image_url": {"url": image_base64}},
+            {"type": "text", "text": text},
+        ]
+    else:
+        if context:
+            user_content = (
+                f"Câu hỏi: {question}\n\n"
+                f"---\nTài liệu tham khảo:\n{context}\n---\n\n"
+                f"Trả lời dựa trên tài liệu, có tính đến mùa vụ hiện tại."
+            )
+        else:
+            user_content = question
+
+    messages = [{"role": "system", "content": _system_prompt()}]
+    if history:
+        messages.extend(history[-10:])
+    messages.append({"role": "user", "content": user_content})
+
+    return await _call(messages)
+
+
+async def extract_from_image(image_base64: str) -> str:
+    """Trích xuất kiến thức từ ảnh để lưu vào knowledge base."""
+    messages = [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": image_base64}},
+        {"type": "text", "text": EXTRACT_PROMPT},
+    ]}]
+    return await _call(messages, max_tokens=2048)
