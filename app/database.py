@@ -97,6 +97,16 @@ def init_db() -> None:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tips_status ON community_tips(status)")
+        # Migration: thêm cột AI verification (bỏ qua nếu đã tồn tại)
+        for col in [
+            "ALTER TABLE community_tips ADD COLUMN ai_confidence REAL DEFAULT NULL",
+            "ALTER TABLE community_tips ADD COLUMN ai_reason TEXT DEFAULT ''",
+            "ALTER TABLE community_tips ADD COLUMN ai_action TEXT DEFAULT ''",
+        ]:
+            try:
+                conn.execute(col)
+            except Exception:
+                pass
         conn.execute("""
             CREATE TABLE IF NOT EXISTS image_submissions (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -385,12 +395,29 @@ def save_community_tip(device_id: str, title: str, content: str, category: str, 
         return cur.lastrowid
 
 
-def get_pending_tips() -> list[dict]:
+def update_tip_ai_result(tip_id: int, confidence: float, reason: str, action: str) -> None:
+    """Lưu kết quả AI verification vào tip."""
+    # Map action sang status
+    status = {"approve": "approved", "reject": "rejected"}.get(action, "review")
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE community_tips SET ai_confidence=?, ai_reason=?, ai_action=?, status=? WHERE id=?",
+            (confidence, reason[:500], action, status, tip_id),
+        )
+
+
+def get_review_tips() -> list[dict]:
+    """Lấy các tip cần admin xem xét (AI không chắc chắn)."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM community_tips WHERE status='pending' ORDER BY created_at DESC"
+            "SELECT * FROM community_tips WHERE status='review' ORDER BY created_at DESC"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_pending_tips() -> list[dict]:
+    """Backward-compat: trả về tips chờ review."""
+    return get_review_tips()
 
 
 def approve_tip(tip_id: int) -> dict | None:

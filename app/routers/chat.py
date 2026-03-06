@@ -20,7 +20,7 @@ from app.services.embeddings import vector_search, EMBED_ENABLED
 from app.database import (
     save_feedback, save_question, get_premium_quota, consume_premium, redeem_code,
     save_user_region, get_user_region, save_community_tip, save_image_submission,
-    add_bonus_quota,
+    add_bonus_quota, update_tip_ai_result, approve_tip, reject_tip,
 )
 from app.services.weather import get_weather, REGION_NAMES
 
@@ -283,17 +283,72 @@ class CommunityTipRequest(BaseModel):
 
 TIP_BONUS = 5  # lượt hỏi thưởng khi gửi kinh nghiệm cộng đồng
 
+_DATA_DIR = __import__("pathlib").Path(__file__).parent.parent.parent / "data"
+
+
+def _save_tip_as_doc(tip_id: int, title: str, content: str) -> None:
+    """Lưu tip đã duyệt thành file .md trong knowledge base."""
+    import re, unicodedata
+    from app.services import rag as rag_module
+    name = unicodedata.normalize("NFD", title.lower())
+    name = "".join(c for c in name if unicodedata.category(c) != "Mn")
+    name = re.sub(r"[^\w\s-]", "", name)
+    name = re.sub(r"[\s-]+", "_", name).strip("_")[:60] or "community"
+    out = _DATA_DIR / f"{name}.md"
+    out.write_text(
+        f"# {title}\n\n> Nguồn: Kinh nghiệm cộng đồng (#{tip_id})\n\n{content}\n",
+        encoding="utf-8",
+    )
+    rag_module.rag.reload()
+
+
 @router.post("/api/community-tips")
 async def api_submit_tip(req: CommunityTipRequest, request: Request):
     if len(req.title.strip()) < 5 or len(req.content.strip()) < 20:
         raise HTTPException(status_code=422, detail="Tiêu đề hoặc nội dung quá ngắn")
     device_id = _get_device_id(request)
+    title   = req.title.strip()
+    content = req.content.strip()
+
+    # Lưu tip trước (status mặc định 'pending')
     tip_id = save_community_tip(
         device_id=device_id,
-        title=req.title.strip(),
-        content=req.content.strip(),
+        title=title,
+        content=content,
         category=req.category.strip(),
         region=req.region.strip(),
     )
+
+    # AI verification bằng model mạnh
+    from app.services.llm import verify_tip
+    try:
+        verdict = await verify_tip(title, content, req.category.strip())
+    except Exception:
+        verdict = {"action": "review", "confidence": 0.5, "reason": "Lỗi kiểm chứng tự động"}
+
+    action     = verdict.get("action", "review")
+    confidence = verdict.get("confidence", 0.5)
+    reason     = verdict.get("reason", "")
+
+    # Cập nhật kết quả AI vào DB
+    update_tip_ai_result(tip_id, confidence, reason, action)
+
+    if action == "reject":
+        # AI chắc chắn sai — từ chối, không thưởng
+        reject_tip(tip_id, reason)
+        return JSONResponse({
+            "ok": False, "rejected": True,
+            "reason": reason or "Thông tin chưa phù hợp hoặc không liên quan đến cà chua.",
+        })
+
+    # approve hoặc review → thưởng quota
     add_bonus_quota(device_id, TIP_BONUS)
-    return JSONResponse({"ok": True, "id": tip_id, "bonus": TIP_BONUS})
+
+    if action == "approve":
+        # AI tự tin cao → đưa vào KB ngay
+        approve_tip(tip_id)
+        _save_tip_as_doc(tip_id, title, content)
+        return JSONResponse({"ok": True, "id": tip_id, "bonus": TIP_BONUS, "auto_approved": True})
+
+    # review → chờ admin
+    return JSONResponse({"ok": True, "id": tip_id, "bonus": TIP_BONUS, "pending_review": True})

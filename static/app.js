@@ -433,13 +433,21 @@ async function submitTip() {
   msgEl.style.color = '#888'; msgEl.textContent = 'Đang gửi...';
   try {
     const res = await fetch('/api/community-tips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, content, category, region: userRegion }) });
-    if (res.ok) {
-      const data = await res.json();
-      msgEl.style.color = '#2e7d32';
-      msgEl.textContent = '✓ Cảm ơn bà con! Admin sẽ xem xét và bổ sung vào kho kiến thức.';
+    const data = await res.json();
+    if (data.ok) {
+      if (data.auto_approved) {
+        msgEl.style.color = '#2e7d32';
+        msgEl.textContent = '✅ Kinh nghiệm của bà con đã được xác nhận và thêm vào kho kiến thức ngay!';
+      } else {
+        msgEl.style.color = '#2e7d32';
+        msgEl.textContent = '✓ Cảm ơn bà con! Admin sẽ xem xét và bổ sung vào kho kiến thức.';
+      }
       if (data.bonus) showBonusToast(data.bonus);
-      setTimeout(closeTipModal, 2500);
-    } else { const err = await res.json(); msgEl.style.color = '#ef5350'; msgEl.textContent = '✗ ' + (err.detail || 'Lỗi không xác định'); }
+      setTimeout(closeTipModal, 2800);
+    } else {
+      msgEl.style.color = '#ef5350';
+      msgEl.textContent = '✗ ' + (data.reason || data.detail || 'Thông tin chưa phù hợp.');
+    }
   } catch { msgEl.style.color = '#ef5350'; msgEl.textContent = '✗ Lỗi kết nối'; }
 }
 

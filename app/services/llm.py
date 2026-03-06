@@ -240,6 +240,64 @@ async def chat(
     return answer
 
 
+async def verify_tip(title: str, content: str, category: str) -> dict:
+    """
+    Kiểm chứng community tip bằng Sonnet, so với knowledge base hiện tại.
+    Trả về: {valid, confidence, reason, action}
+    action: "approve" (>=0.85) | "review" (0.4-0.85) | "reject" (<0.4)
+    """
+    from app.services.rag import rag
+    kb_context = rag.search(f"{title} {content}", top_k=3)
+    context_section = (
+        f"\nTài liệu tham khảo trong hệ thống:\n{kb_context[:2000]}"
+        if kb_context else "\n(Không có tài liệu liên quan trong knowledge base)"
+    )
+
+    prompt = f"""Bạn là chuyên gia nông nghiệp Việt Nam. Kiểm chứng thông tin dưới đây.
+
+Thông tin cần kiểm chứng:
+Tiêu đề: {title[:200]}
+Danh mục: {category}
+Nội dung: {content[:800]}
+{context_section}
+
+Đánh giá theo 4 tiêu chí:
+1. Có phải kiến thức về cà chua / rau màu hợp lệ không?
+2. Có mâu thuẫn với tài liệu tham khảo không?
+3. Số liệu (liều lượng, mật độ, khoảng cách) có bất thường không?
+4. Có phải spam hoặc quảng cáo không?
+
+Trả về JSON (chỉ JSON, không giải thích):
+{{"valid": true, "confidence": 0.9, "reason": "lý do ngắn gọn tiếng Việt", "action": "approve"}}
+
+Quy tắc action:
+- "approve": confidence >= 0.85, thông tin đúng kỹ thuật, không mâu thuẫn KB
+- "review": confidence 0.40–0.85, cần người kiểm tra thêm
+- "reject": confidence < 0.40, sai kỹ thuật / không liên quan / spam"""
+
+    try:
+        raw = await _call([{"role": "user", "content": prompt}],
+                          model=OPENROUTER_MODEL, max_tokens=200)
+        import json, re
+        m = re.search(r'\{[^{}]+\}', raw, re.DOTALL)
+        if m:
+            data = json.loads(m.group())
+            confidence = max(0.0, min(1.0, float(data.get("confidence", 0.5))))
+            action = data.get("action", "review")
+            if action not in ("approve", "review", "reject"):
+                action = "approve" if confidence >= 0.85 else ("reject" if confidence < 0.4 else "review")
+            return {
+                "valid":      bool(data.get("valid", True)),
+                "confidence": confidence,
+                "reason":     str(data.get("reason", ""))[:500],
+                "action":     action,
+            }
+    except Exception as e:
+        log.warning("verify_tip error: %s", e)
+
+    return {"valid": True, "confidence": 0.5, "reason": "Không thể kiểm chứng tự động", "action": "review"}
+
+
 async def extract_from_image(image_base64: str) -> str:
     """Trích xuất kiến thức từ ảnh để lưu vào knowledge base."""
     messages = [{"role": "user", "content": [

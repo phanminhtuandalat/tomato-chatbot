@@ -374,13 +374,24 @@ async function loadCommunityTips() {
   const data = await res.json();
   const list = document.getElementById('communityList');
   if (!data.tips.length) {
-    list.innerHTML = '<div class="empty">✅ Không có góp ý nào đang chờ duyệt.</div>';
+    list.innerHTML = '<div class="empty">✅ Không có góp ý nào cần xem xét.</div>';
     return;
   }
   const CATEGORY_LABELS = { disease:'Sâu bệnh', technique:'Kỹ thuật', fertilizer:'Phân bón', harvest:'Thu hoạch', other:'Khác', '': '' };
-  list.innerHTML = data.tips.map(t => `
+  list.innerHTML = data.tips.map(t => {
+    const pct = t.ai_confidence != null ? Math.round(t.ai_confidence * 100) : null;
+    const badgeClass = pct >= 70 ? 'high' : pct >= 40 ? 'mid' : 'low';
+    const badgeHtml = pct != null
+      ? `<span class="ai-badge ${badgeClass}">🤖 AI: ${pct}% tin cậy</span>`
+      : '';
+    const reasonHtml = t.ai_reason
+      ? `<div class="ai-reason">🤖 ${t.ai_reason}</div>`
+      : '';
+    return `
     <div class="tip-item" id="tip-${t.id}">
       <div class="tip-title">${t.title}</div>
+      ${badgeHtml}
+      ${reasonHtml}
       <div class="tip-content">${t.content.slice(0, 400)}${t.content.length > 400 ? '...' : ''}</div>
       <div class="tip-meta">
         ${CATEGORY_LABELS[t.category] ? `<span style="background:#e8f5e9;color:#2e7d32;border-radius:8px;padding:1px 8px;">${CATEGORY_LABELS[t.category]}</span>` : ''}
@@ -391,7 +402,8 @@ async function loadCommunityTips() {
         <button class="btn-approve" onclick="approveTip(${t.id})">✓ Duyệt &amp; thêm vào KB</button>
         <button class="btn-reject"  onclick="rejectTip(${t.id})">✗ Từ chối</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function approveTip(id) {

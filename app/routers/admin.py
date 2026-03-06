@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from app.config import ADMIN_USER, ADMIN_PASSWORD
 from app.database import (
     get_feedback_stats, get_analytics, create_premium_code, list_premium_codes,
-    get_flywheel_data, get_pending_tips, approve_tip, reject_tip, get_image_submissions,
+    get_flywheel_data, get_review_tips, approve_tip, reject_tip, get_image_submissions,
 )
 from app.services import rag as rag_module
 from app.services.embeddings import index_document, EMBED_ENABLED
@@ -250,7 +250,7 @@ class RejectRequest(BaseModel):
 
 @router.get("/admin/community-tips")
 async def community_tips(_: None = Depends(require_admin)):
-    return JSONResponse({"tips": get_pending_tips()})
+    return JSONResponse({"tips": get_review_tips()})
 
 
 @router.post("/admin/community-approve/{tip_id}")
