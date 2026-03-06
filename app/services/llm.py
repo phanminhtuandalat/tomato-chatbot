@@ -267,10 +267,10 @@ Nhiệm vụ:
 Trả về JSON (chỉ JSON):
 {{"verified": true, "confidence": 0.9, "corrected_answer": "câu trả lời đầy đủ...", "reason": "lý do ngắn"}}"""
 
+    raw = await _call([{"role": "user", "content": prompt}],
+                      model=OPENROUTER_MODEL, max_tokens=600)
+    import json, re
     try:
-        raw = await _call([{"role": "user", "content": prompt}],
-                          model=OPENROUTER_MODEL, max_tokens=600)
-        import json, re
         m = re.search(r'\{.*\}', raw, re.DOTALL)
         if m:
             data = json.loads(m.group())
@@ -281,8 +281,8 @@ Trả về JSON (chỉ JSON):
                 "corrected_answer":  str(data.get("corrected_answer", ""))[:1000],
                 "reason":            str(data.get("reason", ""))[:300],
             }
-    except Exception as e:
-        log.warning("verify_and_correct error: %s", e)
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        log.warning("verify_and_correct parse error: %s | raw: %.200s", e, raw)
 
     return {"verified": False, "confidence": 0.0, "corrected_answer": "", "reason": "Không thể kiểm chứng"}
 
@@ -322,10 +322,10 @@ Quy tắc action:
 - "review": confidence 0.40–0.85, cần người kiểm tra thêm
 - "reject": confidence < 0.40, sai kỹ thuật / không liên quan / spam"""
 
+    raw = await _call([{"role": "user", "content": prompt}],
+                      model=OPENROUTER_MODEL, max_tokens=200)
+    import json, re
     try:
-        raw = await _call([{"role": "user", "content": prompt}],
-                          model=OPENROUTER_MODEL, max_tokens=200)
-        import json, re
         m = re.search(r'\{[^{}]+\}', raw, re.DOTALL)
         if m:
             data = json.loads(m.group())
@@ -339,8 +339,8 @@ Quy tắc action:
                 "reason":     str(data.get("reason", ""))[:500],
                 "action":     action,
             }
-    except Exception as e:
-        log.warning("verify_tip error: %s", e)
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        log.warning("verify_tip parse error: %s | raw: %.200s", e, raw)
 
     return {"valid": True, "confidence": 0.5, "reason": "Không thể kiểm chứng tự động", "action": "review"}
 
@@ -386,10 +386,12 @@ Trả về JSON (chỉ JSON):
 
 Với action=save: corrected_answer là câu trả lời hoàn chỉnh cho câu hỏi gốc, ngắn gọn, thực tế."""
 
+    # LLMError (timeout/auth/quota) propagate lên global handler — không bắt ở đây
+    raw = await _call([{"role": "user", "content": prompt}],
+                      model=OPENROUTER_MODEL, max_tokens=500)
+
+    import json, re
     try:
-        raw = await _call([{"role": "user", "content": prompt}],
-                          model=OPENROUTER_MODEL, max_tokens=500)
-        import json, re
         m = re.search(r'\{.*\}', raw, re.DOTALL)
         if m:
             data = json.loads(m.group())
@@ -402,10 +404,10 @@ Với action=save: corrected_answer là câu trả lời hoàn chỉnh cho câu 
                 "corrected_answer": str(data.get("corrected_answer", ""))[:1000],
                 "confidence":       max(0.0, min(1.0, float(data.get("confidence", 0.7)))),
             }
-    except Exception as e:
-        log.warning("correct_chat_turn error: %s", e)
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        log.warning("correct_chat_turn parse error: %s | raw: %.200s", e, raw)
 
-    return {"action": "continue", "reply": "Xin lỗi, có lỗi xảy ra. Bà con thử lại nhé.", "corrected_answer": "", "confidence": 0.0}
+    return {"action": "continue", "reply": "Tôi chưa hiểu rõ phản hồi. Bà con thử diễn đạt lại nhé.", "corrected_answer": "", "confidence": 0.0}
 
 
 async def extract_from_image(image_base64: str) -> str:
