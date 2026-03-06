@@ -135,9 +135,12 @@ function addBotMessage(text, question = '', submissionId = null, showActiveFeedb
     reasonBox.id = `reason-${msgId}`;
     reasonBox.className = 'reason-wrap';
     reasonBox.innerHTML = `
-      <textarea class="reason-input" id="reasonText-${msgId}" placeholder="Câu trả lời còn thiếu gì? (tuỳ chọn)..." rows="2"></textarea>
-      <button class="reason-submit" onclick="submitReason('${msgId}')">Gửi (+2 câu hỏi)</button>
-      <button class="reason-skip"   onclick="submitReasonSkip('${msgId}')">Bỏ qua (+1 câu hỏi)</button>`;
+      <textarea class="reason-input" id="reasonText-${msgId}" placeholder="Câu trả lời sai ở đâu? (tuỳ chọn)..." rows="2"></textarea>
+      <textarea class="correction-input" id="correctionText-${msgId}" placeholder="💡 Bạn biết đáp án đúng không? Nhập vào đây — bot sẽ kiểm tra và sửa ngay!" rows="2"></textarea>
+      <div class="correction-actions">
+        <button class="correction-submit" id="corrBtn-${msgId}" onclick="submitWithCorrection('${msgId}')">⚡ Kiểm tra &amp; sửa ngay</button>
+        <button class="reason-skip" onclick="submitReasonOnly('${msgId}')">Chỉ góp ý (+2 câu hỏi)</button>
+      </div>`;
     messagesEl.appendChild(fbRow);
     messagesEl.appendChild(reasonBox);
   }
@@ -193,8 +196,56 @@ function showReasonBox(msgId, btnEl) {
   if (box) { box.classList.add('show'); scrollBottom(); }
 }
 
-async function submitReason(msgId) {
-  const row = document.getElementById(msgId);
+async function submitWithCorrection(msgId) {
+  const row        = document.getElementById(msgId);
+  const reason     = document.getElementById(`reasonText-${msgId}`)?.value.trim() || '';
+  const correction = document.getElementById(`correctionText-${msgId}`)?.value.trim() || '';
+  const btn        = document.getElementById(`corrBtn-${msgId}`);
+
+  if (!correction) { submitReasonOnly(msgId); return; }
+
+  document.getElementById(`reason-${msgId}`).classList.remove('show');
+  if (btn) { btn.disabled = true; btn.textContent = 'Đang kiểm tra...'; }
+
+  try {
+    const res = await fetch('/api/correct', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question:     row?.dataset?.question || '',
+        wrong_answer: row?.dataset?.answer   || '',
+        correction, reason,
+        submission_id: row?.dataset?.submissionId ? parseInt(row.dataset.submissionId) : null,
+      }),
+    });
+    const data = await res.json();
+
+    if (data.verified && data.corrected_answer) {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg-bot msg-corrected';
+      wrap.innerHTML = `
+        <div class="bot-avatar">🍅</div>
+        <div class="bubble">
+          <span class="corrected-badge">✏️ Đã cập nhật nhờ góp ý của bà con</span><br>
+          ${esc(data.corrected_answer).replace(/\n/g, '<br>')}
+        </div>`;
+      messagesEl.appendChild(wrap);
+      scrollBottom();
+    } else {
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size:12px;color:#888;margin:4px 0 8px 40px;';
+      note.textContent = '✓ Đã ghi nhận. Chúng tôi sẽ kiểm tra thêm. Cảm ơn bà con!';
+      messagesEl.appendChild(note);
+      scrollBottom();
+    }
+    if (data.bonus) showBonusToast(data.bonus);
+  } catch {
+    document.getElementById(`reason-${msgId}`)?.classList.remove('show');
+  }
+}
+
+async function submitReasonOnly(msgId) {
+  const row    = document.getElementById(msgId);
   const reason = document.getElementById(`reasonText-${msgId}`)?.value.trim() || '';
   document.getElementById(`reason-${msgId}`).classList.remove('show');
   await _postFeedback({
@@ -204,15 +255,8 @@ async function submitReason(msgId) {
   });
 }
 
-async function submitReasonSkip(msgId) {
-  const row = document.getElementById(msgId);
-  document.getElementById(`reason-${msgId}`).classList.remove('show');
-  await _postFeedback({
-    question: row?.dataset?.question || '', answer: row?.dataset?.answer || '',
-    rating: -1, reason: '',
-    submission_id: row?.dataset?.submissionId ? parseInt(row.dataset.submissionId) : null,
-  });
-}
+async function submitReason(msgId) { await submitReasonOnly(msgId); }
+async function submitReasonSkip(msgId) { await submitReasonOnly(msgId); }
 
 async function sendActiveFeedback(msgId, rating) {
   const card = document.getElementById(msgId);

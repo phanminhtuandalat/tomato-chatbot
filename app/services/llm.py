@@ -240,6 +240,53 @@ async def chat(
     return answer
 
 
+async def verify_and_correct(question: str, wrong_answer: str, correction: str) -> dict:
+    """
+    Kiểm chứng thông tin sửa của người dùng và viết lại câu trả lời đúng.
+    Trả về: {verified, confidence, corrected_answer, reason}
+    """
+    from app.services.rag import rag
+    kb_context = rag.search(f"{question} {correction}", top_k=3)
+    context_section = (
+        f"\nTài liệu tham khảo:\n{kb_context[:2000]}"
+        if kb_context else "\n(Không có tài liệu liên quan)"
+    )
+
+    prompt = f"""Người dùng phát hiện câu trả lời AI sai và cung cấp thông tin đúng hơn.
+
+Câu hỏi gốc: {question[:300]}
+Câu trả lời AI (bị báo sai): {wrong_answer[:400]}
+Thông tin đúng theo người dùng: {correction[:500]}
+{context_section}
+
+Nhiệm vụ:
+1. Kiểm tra thông tin người dùng cung cấp có đúng về kỹ thuật nông nghiệp/cà chua không
+2. Nếu đúng (confidence >= 0.70): viết lại câu trả lời hoàn chỉnh, thực tế cho câu hỏi gốc
+3. Nếu không đủ cơ sở xác nhận: nói rõ lý do
+
+Trả về JSON (chỉ JSON):
+{{"verified": true, "confidence": 0.9, "corrected_answer": "câu trả lời đầy đủ...", "reason": "lý do ngắn"}}"""
+
+    try:
+        raw = await _call([{"role": "user", "content": prompt}],
+                          model=OPENROUTER_MODEL, max_tokens=600)
+        import json, re
+        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        if m:
+            data = json.loads(m.group())
+            confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
+            return {
+                "verified":          confidence >= 0.7 and bool(data.get("verified", False)),
+                "confidence":        confidence,
+                "corrected_answer":  str(data.get("corrected_answer", ""))[:1000],
+                "reason":            str(data.get("reason", ""))[:300],
+            }
+    except Exception as e:
+        log.warning("verify_and_correct error: %s", e)
+
+    return {"verified": False, "confidence": 0.0, "corrected_answer": "", "reason": "Không thể kiểm chứng"}
+
+
 async def verify_tip(title: str, content: str, category: str) -> dict:
     """
     Kiểm chứng community tip bằng Sonnet, so với knowledge base hiện tại.

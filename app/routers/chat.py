@@ -22,6 +22,7 @@ from app.database import (
     save_user_region, get_user_region, save_community_tip, save_image_submission,
     add_bonus_quota, update_tip_ai_result, approve_tip, reject_tip,
 )
+from datetime import datetime as _dt
 from app.services.weather import get_weather, REGION_NAMES
 
 router = APIRouter()
@@ -246,6 +247,74 @@ async def api_feedback(req: FeedbackRequest, request: Request):
     add_bonus_quota(device_id, bonus)
 
     return JSONResponse({"ok": True, "bonus": bonus})
+
+
+# ---------------------------------------------------------------------------
+# Correction — người dùng sửa câu trả lời sai
+# ---------------------------------------------------------------------------
+
+class CorrectionRequest(BaseModel):
+    question:     str = ""
+    wrong_answer: str = ""
+    correction:   str = ""
+    reason:       str = ""
+    submission_id: int | None = None
+
+
+@router.post("/api/correct")
+async def api_correct(req: CorrectionRequest, request: Request):
+    device_id = _get_device_id(request)
+
+    # Luôn lưu feedback -1 kèm lý do
+    save_feedback(
+        ts=_dt.now().isoformat(timespec="seconds"),
+        rating=-1,
+        question=f"{req.question}\n[Sửa: {req.correction[:200]}]" if req.correction else req.question,
+        answer=req.wrong_answer,
+    )
+    if req.submission_id:
+        try:
+            from app.database import update_image_feedback
+            update_image_feedback(req.submission_id, -1)
+        except Exception:
+            pass
+
+    if not req.correction.strip():
+        add_bonus_quota(device_id, 2)
+        return JSONResponse({"verified": False, "bonus": 2})
+
+    # Kiểm chứng thông tin sửa bằng Sonnet
+    from app.services.llm import verify_and_correct
+    try:
+        result = await verify_and_correct(req.question, req.wrong_answer, req.correction)
+    except Exception:
+        result = {"verified": False, "confidence": 0.0, "corrected_answer": "", "reason": ""}
+
+    if result["verified"]:
+        # Lưu vào KB ngay
+        title = f"Sửa: {req.question[:80]}"
+        content = f"Câu hỏi: {req.question}\n\nThông tin đúng:\n{req.correction}\n\nGiải thích:\n{result['corrected_answer']}"
+        tip_id = save_community_tip(
+            device_id=device_id, title=title, content=content,
+            category="correction", region="",
+        )
+        update_tip_ai_result(tip_id, result["confidence"], result["reason"], "approve")
+        approve_tip(tip_id)
+        _save_tip_as_doc(tip_id, title, content)
+        add_bonus_quota(device_id, 3)  # thưởng nhiều hơn vì đóng góp có giá trị
+        return JSONResponse({
+            "verified":         True,
+            "corrected_answer": result["corrected_answer"],
+            "confidence":       result["confidence"],
+            "bonus":            3,
+        })
+
+    add_bonus_quota(device_id, 2)
+    return JSONResponse({
+        "verified": False,
+        "reason":   result.get("reason", ""),
+        "bonus":    2,
+    })
 
 
 # ---------------------------------------------------------------------------
