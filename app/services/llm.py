@@ -15,12 +15,18 @@ log = logging.getLogger(__name__)
 
 SYSTEM_PROMPT_TEMPLATE = """Bạn là chuyên gia tư vấn trồng cà chua cho nông dân Việt Nam. Hiện tại: tháng {month}/{year}.
 
-Quy tắc:
+Quy tắc trả lời:
 - Tiếng Việt, ngắn gọn, thực tế
 - Ưu tiên thông tin từ "Tài liệu tham khảo" nếu có; gắn với mùa vụ tháng {month}
-- Nêu cụ thể: tên thuốc, liều lượng, thời điểm
-- Không chắc hoặc bệnh nặng → khuyên gọi 1900-9008
-- KHÔNG bịa đặt thông tin"""
+- Nêu cụ thể: tên thuốc, liều lượng, thời điểm phun/bón
+- KHÔNG bịa đặt thông tin — nếu không chắc, nói rõ "Tôi không chắc chắn về điều này"
+- Bệnh nặng hoặc không xác định được → khuyên gọi 1900-9008 hoặc gặp cán bộ khuyến nông
+
+Khi câu hỏi về bệnh/triệu chứng/sâu hại, phân tích theo thứ tự:
+1. Mô tả triệu chứng đang thấy
+2. Nguyên nhân có thể (bệnh, sâu, thiếu dinh dưỡng, điều kiện thời tiết)
+3. Chẩn đoán cụ thể (nếu đủ thông tin) hoặc nói "cần xem thêm" nếu chưa rõ
+4. Giải pháp: tên thuốc/biện pháp, liều lượng, thời điểm xử lý{region_line}{weather_line}"""
 
 EXTRACT_PROMPT = """Bạn là chuyên gia nông nghiệp. Hãy đọc ảnh này và trích xuất toàn bộ kiến thức nông nghiệp có trong đó.
 
@@ -34,10 +40,21 @@ Yêu cầu:
 
 Chỉ trả về nội dung đã trích xuất, không thêm lời mở đầu hay kết."""
 
+IMAGE_DIAGNOSIS_PROMPT = """Phân tích ảnh cây cà chua theo các bước sau:
 
-def _system_prompt() -> str:
+1. **Nhận diện**: Đây có phải ảnh cây cà chua hoặc vườn cà chua không? Nếu không phải → nói rõ và dừng.
+2. **Mô tả triệu chứng**: Màu sắc, hình dạng, vị trí trên cây (lá/thân/quả/rễ), mức độ lan rộng
+3. **Chẩn đoán**: Bệnh, sâu hại, hoặc rối loạn sinh lý cụ thể. Nếu chưa đủ thông tin → nói "Tôi không chắc chắn, cần xem thêm"
+4. **Giải pháp**: Tên thuốc/biện pháp, liều lượng, thời điểm xử lý, lưu ý
+
+Trả lời bằng tiếng Việt, thực tế, cụ thể."""
+
+
+def _system_prompt(region: str = "", weather: str = "") -> str:
     now = datetime.now()
-    return SYSTEM_PROMPT_TEMPLATE.format(month=now.month, year=now.year)
+    region_line = f"\n\nNgười dùng trồng ở {region}. Điều chỉnh lời khuyên phù hợp điều kiện địa phương." if region else ""
+    weather_line = f"\nThời tiết hiện tại: {weather}. Lưu ý khi tư vấn phòng bệnh và tưới nước." if weather else ""
+    return SYSTEM_PROMPT_TEMPLATE.format(month=now.month, year=now.year, region_line=region_line, weather_line=weather_line)
 
 
 def _headers() -> dict:
@@ -166,6 +183,8 @@ async def chat(
     context: str = "",
     image_base64: str = "",
     history: list[dict] | None = None,
+    region: str = "",
+    weather: str = "",
 ) -> str:
     """Trả lời câu hỏi của nông dân, có kèm context RAG và lịch sử hội thoại."""
     question = question[:MAX_QUESTION_CHARS]
@@ -174,14 +193,16 @@ async def chat(
     if image_base64:
         # Ảnh: dùng model mạnh (Sonnet) + không cache (mỗi ảnh khác nhau)
         image_base64 = _compress_image(image_base64)
-        text = question or "Phân tích ảnh cây cà chua này và cho biết có vấn đề gì không?"
+        text = IMAGE_DIAGNOSIS_PROMPT
+        if question:
+            text += f"\n\nNgười dùng hỏi thêm: {question}"
         if context:
             text += f"\n\n---\nTài liệu tham khảo:\n{context}"
         user_content = [
             {"type": "image_url", "image_url": {"url": image_base64}},
             {"type": "text", "text": text},
         ]
-        messages = [{"role": "system", "content": _system_prompt()}]
+        messages = [{"role": "system", "content": _system_prompt(region, weather)}]
         if history:
             messages.extend(_trim_history(history))
         messages.append({"role": "user", "content": user_content})
@@ -204,7 +225,7 @@ async def chat(
     else:
         user_content = question
 
-    messages = [{"role": "system", "content": _system_prompt()}]
+    messages = [{"role": "system", "content": _system_prompt(region, weather)}]
     if history:
         messages.extend(_trim_history(history))
     messages.append({"role": "user", "content": user_content})

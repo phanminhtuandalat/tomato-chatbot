@@ -1,0 +1,459 @@
+const log = document.getElementById('log');
+
+function writeLog(msg, color) {
+  log.classList.add('show');
+  log.textContent += (color === 'error' ? '✗ ' : '✓ ') + msg + '\n';
+  log.scrollTop = log.scrollHeight;
+}
+
+// Kéo thả file
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) sendFile(file);
+});
+
+// Kéo thả ảnh
+const imgDropZone = document.getElementById('imgDropZone');
+imgDropZone.addEventListener('dragover', e => { e.preventDefault(); imgDropZone.classList.add('drag'); });
+imgDropZone.addEventListener('dragleave', () => imgDropZone.classList.remove('drag'));
+imgDropZone.addEventListener('drop', e => {
+  e.preventDefault(); imgDropZone.classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) processImage(file);
+});
+
+async function uploadImage(e) {
+  const file = e.target.files[0];
+  if (file) await processImage(file);
+  e.target.value = '';
+}
+
+async function processImage(file) {
+  const title = document.getElementById('imgTitle').value.trim();
+  const preview = document.getElementById('imgPreviewWrap');
+  const previewImg = document.getElementById('imgPreview');
+  const previewName = document.getElementById('imgPreviewName');
+
+  previewImg.src = URL.createObjectURL(file);
+  previewName.textContent = file.name;
+  preview.style.display = 'flex';
+
+  writeLog(`Đang phân tích ảnh: ${file.name} (AI đang đọc...)`);
+
+  const form = new FormData();
+  form.append('file', file);
+  if (title) form.append('title', title);
+
+  try {
+    const res = await fetch('/admin/upload-image', { method: 'POST', body: form });
+    const data = await res.json();
+    preview.style.display = 'none';
+    if (data.ok) {
+      writeLog(`Đã trích xuất: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
+      if (data.preview) writeLog(`Nội dung: ${data.preview}...`);
+      loadDocs();
+    } else {
+      writeLog(data.error || 'Lỗi không xác định', 'error');
+    }
+  } catch { preview.style.display = 'none'; writeLog('Lỗi kết nối', 'error'); }
+}
+
+async function uploadFile(e) {
+  const file = e.target.files[0];
+  if (file) await sendFile(file);
+  e.target.value = '';
+}
+
+async function sendFile(file) {
+  writeLog(`Đang upload: ${file.name}`);
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/admin/upload', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      writeLog(`Đã thêm: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
+      loadDocs();
+    } else {
+      writeLog(data.error || 'Lỗi không xác định', 'error');
+    }
+  } catch { writeLog('Lỗi kết nối', 'error'); }
+}
+
+async function uploadUrl() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return;
+  writeLog(`Đang tải URL: ${url}`);
+  try {
+    const res = await fetch('/admin/upload-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      writeLog(`Đã thêm: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
+      document.getElementById('urlInput').value = '';
+      loadDocs();
+    } else {
+      writeLog(data.error || 'Lỗi không xác định', 'error');
+    }
+  } catch { writeLog('Lỗi kết nối', 'error'); }
+}
+
+async function deleteDoc(filename) {
+  if (!confirm(`Xoá tài liệu "${filename}"?`)) return;
+  const res = await fetch('/admin/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename }),
+  });
+  const data = await res.json();
+  if (data.ok) { writeLog(`Đã xoá: ${filename}`); loadDocs(); }
+}
+
+const ICONS = { pdf: '📕', docx: '📘', txt: '📄', md: '📗', default: '📄' };
+
+async function loadDocs() {
+  const res = await fetch('/admin/docs');
+  const data = await res.json();
+  const list = document.getElementById('docList');
+  document.getElementById('docCount').textContent = data.docs.length;
+
+  if (!data.docs.length) {
+    list.innerHTML = '<div class="empty">Chưa có tài liệu nào</div>';
+    return;
+  }
+
+  list.innerHTML = data.docs.map(d => {
+    const ext = d.name.split('.').pop();
+    const icon = ICONS[ext] || ICONS.default;
+    return `
+      <div class="doc-item">
+        <span class="doc-icon">${icon}</span>
+        <div class="doc-info">
+          <div class="doc-name">${d.name}</div>
+          <div class="doc-meta">${d.size_kb} KB · ${d.modified}</div>
+        </div>
+        <button class="doc-delete" onclick="deleteDoc('${d.name}')" title="Xoá">🗑</button>
+      </div>`;
+  }).join('');
+}
+
+loadDocs();
+loadAnalytics();
+loadFeedback();
+loadFlywheel();
+loadCommunityTips();
+loadImageDataset();
+checkPushEnabled();
+loadCodes();
+
+function fillCode(code, requests, images, maxUses, note) {
+  document.getElementById('codeInput').value    = code;
+  document.getElementById('codeRequests').value = requests;
+  document.getElementById('codeImages').value   = images;
+  document.getElementById('codeMaxUses').value  = maxUses;
+  document.getElementById('codeNote').value     = note;
+}
+
+async function createCode() {
+  const code     = document.getElementById('codeInput').value.trim().toUpperCase();
+  const requests = parseInt(document.getElementById('codeRequests').value) || 0;
+  const images   = parseInt(document.getElementById('codeImages').value) || 0;
+  const max_uses = parseInt(document.getElementById('codeMaxUses').value) || 1;
+  const note     = document.getElementById('codeNote').value.trim();
+  const result   = document.getElementById('codeResult');
+  if (!code || requests < 1) { alert('Nhập mã và số câu hỏi'); return; }
+  const res  = await fetch('/admin/premium-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, requests, images, max_uses, note }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    result.innerHTML = `<span style="color:#2e7d32">✓ Đã tạo mã <b>${data.code}</b></span>`;
+    loadCodes();
+  } else {
+    result.innerHTML = `<span style="color:#ef5350">✗ ${data.error}</span>`;
+  }
+}
+
+async function loadCodes() {
+  const res  = await fetch('/admin/premium-codes');
+  const data = await res.json();
+  const list = document.getElementById('codeList');
+  if (!data.codes.length) { list.innerHTML = '<div class="empty">Chưa có mã nào</div>'; return; }
+  list.innerHTML = data.codes.map(c => {
+    const full = c.used_count >= c.max_uses;
+    const statusBg = full ? '#ffebee' : (c.used_count > 0 ? '#fff8e1' : '#e8f5e9');
+    const statusColor = full ? '#ef5350' : (c.used_count > 0 ? '#f57c00' : '#2e7d32');
+    const statusText = full ? 'Hết lượt' : (c.used_count > 0 ? `${c.used_count}/${c.max_uses} lượt` : 'Chưa dùng');
+    const ips = c.redemptions.map(r =>
+      `<div style="font-size:11px;color:#aaa;padding-left:4px;">· ${r.ip} <span style="color:#bbb;">${r.ts}</span></div>`
+    ).join('');
+    return `
+    <div class="doc-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
+      <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
+        <span style="font-size:15px;font-weight:700;font-family:monospace;color:#1b5e20;">${c.code}</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${statusBg};color:${statusColor};">${statusText}</span>
+      </div>
+      <div style="font-size:12px;color:#555;">+${c.requests} câu hỏi · +${c.images} ảnh · tối đa ${c.max_uses} người${c.note ? ' · ' + c.note : ''}</div>
+      ${ips}
+    </div>`;
+  }).join('');
+}
+
+async function checkPushEnabled() {
+  const res = await fetch('/api/vapid-public-key').catch(() => null);
+  if (!res?.ok) return;
+  const { enabled } = await res.json();
+  if (!enabled) {
+    document.getElementById('pushCard').innerHTML = `
+      <h2>🔔 Gửi thông báo đẩy</h2>
+      <div style="background:#fff8e1;border-left:4px solid #f9a825;padding:12px 16px;border-radius:8px;font-size:13px;color:#5d4037;">
+        <strong>Chưa cấu hình VAPID keys.</strong><br>
+        Thêm 2 biến môi trường vào Railway:<br><br>
+        <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">VAPID_PUBLIC_KEY</code> và
+        <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">VAPID_PRIVATE_KEY</code><br><br>
+        Chạy lệnh sau để tạo keys: <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">python generate_vapid.py</code>
+      </div>`;
+  }
+}
+
+function fillPush(title, body) {
+  document.getElementById('pushTitle').value = title;
+  document.getElementById('pushBody').value = body;
+}
+
+async function sendPush() {
+  const title = document.getElementById('pushTitle').value.trim();
+  const body  = document.getElementById('pushBody').value.trim();
+  if (!title || !body) { alert('Vui lòng nhập tiêu đề và nội dung'); return; }
+
+  const btn = document.getElementById('pushBtn');
+  const result = document.getElementById('pushResult');
+  btn.disabled = true;
+  btn.textContent = 'Đang gửi...';
+  result.textContent = '';
+
+  try {
+    const res = await fetch('/admin/push-send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body, url: '/' }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (data.reason === 'no_subscribers') {
+        result.innerHTML = '<span style="color:#f57c00;">⚠️ Chưa có thiết bị nào đăng ký nhận thông báo.</span>';
+      } else {
+        result.innerHTML = `<span style="color:#2e7d32;">✓ Đã gửi thành công đến <b>${data.sent}</b> thiết bị${data.failed ? ` (${data.failed} lỗi)` : ''}.</span>`;
+      }
+    } else {
+      result.innerHTML = `<span style="color:#ef5350;">✗ ${data.detail || 'Lỗi không xác định'}</span>`;
+    }
+  } catch {
+    result.innerHTML = '<span style="color:#ef5350;">✗ Lỗi kết nối</span>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📤 Gửi thông báo';
+  }
+}
+
+async function loadAnalytics() {
+  const res = await fetch('/admin/analytics');
+  const d = await res.json();
+
+  document.getElementById('aTotalQ').textContent   = d.total_questions;
+  document.getElementById('aTotalImg').textContent = d.total_with_image;
+
+  // Bar chart 7 ngày
+  const maxCount = Math.max(1, ...d.daily.map(x => x.count));
+  const chart  = document.getElementById('barChart');
+  const labels = document.getElementById('barLabels');
+
+  const days = {};
+  for (let i = 6; i >= 0; i--) {
+    const dt = new Date(); dt.setDate(dt.getDate() - i);
+    const key = dt.toISOString().slice(0,10);
+    days[key] = 0;
+  }
+  d.daily.forEach(x => { if (days[x.day] !== undefined) days[x.day] = x.count; });
+
+  chart.innerHTML = Object.entries(days).map(([day, cnt]) => {
+    const h = Math.max(4, Math.round((cnt / maxCount) * 72));
+    return `<div class="bar-col">
+      <div class="bar-val">${cnt || ''}</div>
+      <div class="bar" style="height:${h}px" title="${cnt} câu hỏi ngày ${day}"></div>
+    </div>`;
+  }).join('');
+
+  labels.innerHTML = Object.keys(days).map(day =>
+    `<div style="flex:1;text-align:center;font-size:10px;color:#999;">${day.slice(5)}</div>`
+  ).join('');
+
+  // Từ khoá
+  const cloud = document.getElementById('keywordCloud');
+  if (!d.top_keywords.length) {
+    cloud.innerHTML = '<div class="empty">Chưa có dữ liệu</div>';
+  } else {
+    const maxKw = d.top_keywords[0].count;
+    cloud.innerHTML = d.top_keywords.map(k =>
+      `<span class="kw-tag ${k.count >= maxKw * 0.6 ? 'big' : ''}">${k.word} <b>${k.count}</b></span>`
+    ).join('');
+  }
+
+  // Câu hỏi gần nhất
+  const recent = document.getElementById('recentQuestions');
+  if (!d.recent.length) {
+    recent.innerHTML = '<div class="empty">Chưa có câu hỏi nào</div>';
+  } else {
+    recent.innerHTML = d.recent.map(q => `
+      <div class="q-item">
+        <div class="q-text">${q.has_image ? '📷 ' : ''}${q.question}</div>
+        <div class="q-meta">${q.ts.replace('T', ' ')}</div>
+      </div>`).join('');
+  }
+}
+
+async function loadFlywheel() {
+  const res = await fetch('/admin/flywheel');
+  const d = await res.json();
+
+  // Câu hỏi xấu
+  const badEl = document.getElementById('badQuestions');
+  if (!d.bad_questions.length) {
+    badEl.innerHTML = '<div class="empty">✅ Chưa có câu hỏi bị đánh giá 👎 nhiều lần.</div>';
+  } else {
+    badEl.innerHTML = d.bad_questions.map(q => `
+      <div class="bad-item">
+        <div class="bad-q">❓ ${q.question}</div>
+        <div class="bad-a">💬 ${q.answer || '(không có câu trả lời)'}</div>
+        <div class="bad-meta">
+          <span style="background:#ffebee;color:#ef5350;border-radius:10px;padding:2px 8px;font-weight:700;">👎 ${q.bad_count} lần</span>
+          <span>${q.last_seen.replace('T',' ')}</span>
+          <button class="btn" style="font-size:11px;padding:3px 10px;margin-left:auto;" onclick="prefillUrl('${q.question.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">+ Thêm tài liệu</button>
+        </div>
+      </div>`).join('');
+  }
+
+  // Gap analysis
+  const gapCloud = document.getElementById('gapCloud');
+  const gapEmpty = document.getElementById('gapEmpty');
+  if (!d.gaps.length) {
+    gapCloud.style.display = 'none';
+    gapEmpty.style.display = 'block';
+  } else {
+    gapCloud.style.display = 'flex';
+    gapEmpty.style.display = 'none';
+    const maxCount = d.gaps[0]?.count || 1;
+    gapCloud.innerHTML = d.gaps.map(g => {
+      const size = g.count >= maxCount * 0.7 ? '15px' : '13px';
+      return `<span class="gap-tag" style="font-size:${size};" title="${g.count} lần hỏi">
+        ${g.word} <b style="font-size:11px;opacity:0.7;">${g.count}</b>
+      </span>`;
+    }).join('');
+  }
+}
+
+function prefillUrl(question) {
+  document.getElementById('urlInput').value = '';
+  document.getElementById('urlInput').placeholder = `Tìm tài liệu về: ${question}`;
+  document.getElementById('urlInput').focus();
+  document.getElementById('urlInput').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function loadCommunityTips() {
+  const res = await fetch('/admin/community-tips');
+  const data = await res.json();
+  const list = document.getElementById('communityList');
+  if (!data.tips.length) {
+    list.innerHTML = '<div class="empty">✅ Không có góp ý nào đang chờ duyệt.</div>';
+    return;
+  }
+  const CATEGORY_LABELS = { disease:'Sâu bệnh', technique:'Kỹ thuật', fertilizer:'Phân bón', harvest:'Thu hoạch', other:'Khác', '': '' };
+  list.innerHTML = data.tips.map(t => `
+    <div class="tip-item" id="tip-${t.id}">
+      <div class="tip-title">${t.title}</div>
+      <div class="tip-content">${t.content.slice(0, 400)}${t.content.length > 400 ? '...' : ''}</div>
+      <div class="tip-meta">
+        ${CATEGORY_LABELS[t.category] ? `<span style="background:#e8f5e9;color:#2e7d32;border-radius:8px;padding:1px 8px;">${CATEGORY_LABELS[t.category]}</span>` : ''}
+        ${t.region ? `<span>📍 ${t.region}</span>` : ''}
+        <span>${t.created_at.replace('T',' ')}</span>
+      </div>
+      <div class="tip-actions">
+        <button class="btn-approve" onclick="approveTip(${t.id})">✓ Duyệt &amp; thêm vào KB</button>
+        <button class="btn-reject"  onclick="rejectTip(${t.id})">✗ Từ chối</button>
+      </div>
+    </div>`).join('');
+}
+
+async function approveTip(id) {
+  const res = await fetch(`/admin/community-approve/${id}`, { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById(`tip-${id}`).innerHTML = `<div style="color:#2e7d32;font-size:13px;">✓ Đã duyệt — tạo file <b>${data.filename}</b> và cập nhật knowledge base.</div>`;
+    setTimeout(loadDocs, 500);
+  } else {
+    alert(data.error || 'Lỗi');
+  }
+}
+
+async function rejectTip(id) {
+  if (!confirm('Từ chối góp ý này?')) return;
+  await fetch(`/admin/community-reject/${id}`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+  document.getElementById(`tip-${id}`).style.opacity = '0.4';
+  document.getElementById(`tip-${id}`).innerHTML += '<div style="font-size:12px;color:#ef5350;margin-top:6px;">✗ Đã từ chối</div>';
+}
+
+async function loadImageDataset() {
+  const res = await fetch('/admin/image-submissions');
+  const data = await res.json();
+  const list = document.getElementById('imageDatasetList');
+  if (!data.submissions.length) {
+    list.innerHTML = '<div class="empty">Chưa có ảnh nào được gửi.</div>';
+    return;
+  }
+  const fbIcon = f => f === 1 ? '👍' : f === -1 ? '👎' : '—';
+  list.innerHTML = data.submissions.map(s => `
+    <div class="img-item">
+      <div style="width:70px;height:70px;background:#f0f0f0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;">📷</div>
+      <div class="img-info">
+        <div class="img-diagnosis">${s.diagnosis || '(chưa có chẩn đoán)'}</div>
+        <div class="img-meta">
+          <span>Feedback: ${fbIcon(s.feedback)}</span>
+          ${s.label ? `<span style="background:#e3f2fd;color:#1565c0;border-radius:6px;padding:1px 6px;">${s.label}</span>` : ''}
+          <span>${s.created_at.replace('T',' ')}</span>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+async function loadFeedback() {
+  const res = await fetch('/admin/feedback');
+  const data = await res.json();
+  document.getElementById('fbGood').textContent  = data.good;
+  document.getElementById('fbBad').textContent   = data.bad;
+  document.getElementById('fbTotal').textContent = data.total;
+
+  const list = document.getElementById('feedbackList');
+  if (!data.items.length) {
+    list.innerHTML = '<div class="empty">Chưa có đánh giá nào</div>';
+    return;
+  }
+  list.innerHTML = data.items.map(i => `
+    <div class="doc-item" style="flex-direction:column;align-items:flex-start;gap:6px;">
+      <div style="display:flex;justify-content:space-between;width:100%;">
+        <span style="font-size:18px;">${i.rating === 1 ? '👍' : '👎'}</span>
+        <span style="font-size:11px;color:#aaa;">${i.ts}</span>
+      </div>
+      <div style="font-size:13px;font-weight:600;color:#333;">❓ ${i.question || '(ảnh)'}</div>
+      <div style="font-size:12px;color:#666;line-height:1.5;">💬 ${i.answer.slice(0, 150)}${i.answer.length > 150 ? '...' : ''}</div>
+    </div>`).join('');
+}

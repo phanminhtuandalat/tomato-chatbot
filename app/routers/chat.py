@@ -17,7 +17,12 @@ from pydantic import BaseModel
 from app.services import llm, rag as rag_module
 from app.services.llm import LLMError
 from app.services.embeddings import vector_search, EMBED_ENABLED
-from app.database import save_feedback, save_question, get_premium_quota, consume_premium, redeem_code
+from app.database import (
+    save_feedback, save_question, get_premium_quota, consume_premium, redeem_code,
+    save_user_region, get_user_region, save_community_tip, save_image_submission,
+    add_bonus_quota,
+)
+from app.services.weather import get_weather, REGION_NAMES
 
 router = APIRouter()
 
@@ -93,17 +98,41 @@ class ChatRequest(BaseModel):
     message: str = ""
     image: str = ""
     history: list[HistoryMessage] = []
+    region: str = ""
+    lat: float = 0.0
+    lon: float = 0.0
+
+
+_ERROR_MESSAGES = {
+    "timeout":  "Hệ thống phản hồi chậm, vui lòng thử lại sau ít phút.",
+    "connect":  "Không kết nối được đến máy chủ AI. Kiểm tra mạng và thử lại.",
+    "auth":     "Lỗi xác thực API. Vui lòng liên hệ quản trị viên.",
+    "quota":    "Hệ thống AI đang quá tải. Vui lòng thử lại sau vài phút.",
+    "server":   "Máy chủ AI đang gặp sự cố. Vui lòng thử lại sau.",
+    "response": "Nhận được phản hồi không hợp lệ từ AI. Vui lòng thử lại.",
+    "http":     "Lỗi kết nối đến AI. Vui lòng thử lại sau.",
+}
 
 
 @router.post("/api/chat")
 async def api_chat(req: ChatRequest, request: Request):
-    question = req.message.strip()
-    image    = req.image.strip()
+    question  = req.message.strip()
+    image     = req.image.strip()
+    device_id = _get_device_id(request)
 
-    _check_rate(_get_device_id(request), request.client.host, has_image=bool(image))
+    _check_rate(device_id, request.client.host, has_image=bool(image))
 
     if not question and not image:
         return JSONResponse({"answer": ""})
+
+    # Lấy region: từ request → DB → ""
+    region = req.region.strip()
+    if not region:
+        region = get_user_region(device_id)
+    region_name = REGION_NAMES.get(region, "")
+
+    # Lấy thời tiết bất đồng bộ (không block nếu lỗi)
+    weather = await get_weather(region=region, lat=req.lat, lon=req.lon)
 
     # Log câu hỏi để analytics
     if question:
@@ -125,31 +154,31 @@ async def api_chat(req: ChatRequest, request: Request):
         context = ""
     history = [{"role": m.role, "content": m.content} for m in req.history]
 
-    _ERROR_MESSAGES = {
-        "timeout":  "Hệ thống phản hồi chậm, vui lòng thử lại sau ít phút.",
-        "connect":  "Không kết nối được đến máy chủ AI. Kiểm tra mạng và thử lại.",
-        "auth":     "Lỗi xác thực API. Vui lòng liên hệ quản trị viên.",
-        "quota":    "Hệ thống AI đang quá tải. Vui lòng thử lại sau vài phút.",
-        "server":   "Máy chủ AI đang gặp sự cố. Vui lòng thử lại sau.",
-        "response": "Nhận được phản hồi không hợp lệ từ AI. Vui lòng thử lại.",
-        "http":     "Lỗi kết nối đến AI. Vui lòng thử lại sau.",
-    }
-
     try:
         answer = await llm.chat(
             question=question,
             context=context,
             image_base64=image,
             history=history,
+            region=region_name,
+            weather=weather,
         )
     except LLMError as e:
         log.error("LLMError [%s]", e)
-        answer = _ERROR_MESSAGES.get(str(e), "Lỗi không xác định. Vui lòng thử lại.")
+        return JSONResponse({"answer": _ERROR_MESSAGES.get(str(e), "Lỗi không xác định. Vui lòng thử lại.")})
     except Exception as e:
         log.exception("llm.chat unexpected error: %s", e)
-        answer = "Lỗi hệ thống không xác định. Vui lòng thử lại sau ít phút."
+        return JSONResponse({"answer": "Lỗi hệ thống không xác định. Vui lòng thử lại sau ít phút."})
 
-    return JSONResponse({"answer": answer})
+    # Lưu chẩn đoán vào dataset nếu có ảnh (không lưu ảnh để tiết kiệm DB)
+    submission_id = None
+    if image:
+        try:
+            submission_id = save_image_submission(device_id, answer)
+        except Exception:
+            pass  # không block response nếu lưu lỗi
+
+    return JSONResponse({"answer": answer, "submission_id": submission_id})
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +189,8 @@ class FeedbackRequest(BaseModel):
     question: str = ""
     answer: str   = ""
     rating: int
+    reason: str = ""          # giải thích khi bấm 👎
+    submission_id: int | None = None
 
 
 class RedeemRequest(BaseModel):
@@ -185,13 +216,84 @@ async def api_quota(request: Request):
     })
 
 @router.post("/api/feedback")
-async def api_feedback(req: FeedbackRequest):
+async def api_feedback(req: FeedbackRequest, request: Request):
     if req.rating not in (1, -1):
         raise HTTPException(status_code=422, detail="rating phải là 1 hoặc -1")
+
+    # Lưu feedback (nếu có reason thì gắn vào câu hỏi)
+    question_with_reason = req.question
+    if req.reason.strip():
+        question_with_reason = f"{req.question}\n[Lý do 👎: {req.reason.strip()}]"
     save_feedback(
         ts=datetime.now().isoformat(timespec="seconds"),
         rating=req.rating,
-        question=req.question,
+        question=question_with_reason,
         answer=req.answer,
     )
+
+    # Cập nhật feedback cho ảnh nếu có submission_id
+    if req.submission_id:
+        try:
+            from app.database import update_image_feedback
+            update_image_feedback(req.submission_id, req.rating)
+        except Exception:
+            pass
+
+    # Thưởng quota: 👎 + lý do = +2, còn lại = +1
+    device_id = _get_device_id(request)
+    has_reason = bool(req.reason.strip())
+    bonus = 2 if (req.rating == -1 and has_reason) else 1
+    add_bonus_quota(device_id, bonus)
+
+    return JSONResponse({"ok": True, "bonus": bonus})
+
+
+# ---------------------------------------------------------------------------
+# User region
+# ---------------------------------------------------------------------------
+
+class RegionRequest(BaseModel):
+    region: str
+
+@router.post("/api/user-region")
+async def api_save_region(req: RegionRequest, request: Request):
+    from app.services.weather import REGION_NAMES
+    if req.region not in REGION_NAMES:
+        raise HTTPException(status_code=422, detail="Vùng không hợp lệ")
+    device_id = _get_device_id(request)
+    save_user_region(device_id, req.region)
     return JSONResponse({"ok": True})
+
+
+@router.get("/api/regions")
+async def api_regions():
+    from app.services.weather import REGION_NAMES
+    return JSONResponse({"regions": [{"key": k, "name": v} for k, v in REGION_NAMES.items()]})
+
+
+# ---------------------------------------------------------------------------
+# Community tips
+# ---------------------------------------------------------------------------
+
+class CommunityTipRequest(BaseModel):
+    title: str
+    content: str
+    category: str = ""
+    region: str = ""
+
+TIP_BONUS = 5  # lượt hỏi thưởng khi gửi kinh nghiệm cộng đồng
+
+@router.post("/api/community-tips")
+async def api_submit_tip(req: CommunityTipRequest, request: Request):
+    if len(req.title.strip()) < 5 or len(req.content.strip()) < 20:
+        raise HTTPException(status_code=422, detail="Tiêu đề hoặc nội dung quá ngắn")
+    device_id = _get_device_id(request)
+    tip_id = save_community_tip(
+        device_id=device_id,
+        title=req.title.strip(),
+        content=req.content.strip(),
+        category=req.category.strip(),
+        region=req.region.strip(),
+    )
+    add_bonus_quota(device_id, TIP_BONUS)
+    return JSONResponse({"ok": True, "id": tip_id, "bonus": TIP_BONUS})

@@ -76,6 +76,37 @@ def init_db() -> None:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_regions (
+                device_id  TEXT PRIMARY KEY,
+                region     TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS community_tips (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id  TEXT    NOT NULL,
+                title      TEXT    NOT NULL,
+                content    TEXT    NOT NULL,
+                category   TEXT    NOT NULL DEFAULT '',
+                region     TEXT    NOT NULL DEFAULT '',
+                created_at TEXT    NOT NULL,
+                status     TEXT    NOT NULL DEFAULT 'pending',
+                admin_note TEXT    NOT NULL DEFAULT ''
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tips_status ON community_tips(status)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS image_submissions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id  TEXT    NOT NULL,
+                diagnosis  TEXT    NOT NULL DEFAULT '',
+                feedback   INTEGER DEFAULT NULL,
+                label      TEXT    DEFAULT NULL,
+                created_at TEXT    NOT NULL
+            )
+        """)
 
 
 @contextmanager
@@ -125,6 +156,15 @@ def redeem_code(code: str, ip: str) -> dict:
                 images   = images   + excluded.images
         """, (ip, row["requests"], row["images"]))
     return {"ok": True, "requests": row["requests"], "images": row["images"]}
+
+
+def add_bonus_quota(device_id: str, requests: int) -> None:
+    """Thưởng lượt hỏi miễn phí cho người dùng (feedback, tip...)."""
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO premium_quota (ip, requests, images) VALUES (?, ?, 0)
+            ON CONFLICT(ip) DO UPDATE SET requests = requests + excluded.requests
+        """, (device_id, requests))
 
 
 def get_premium_quota(ip: str) -> dict:
@@ -255,6 +295,143 @@ def get_analytics() -> dict:
         "recent": [{"ts": r["ts"], "question": r["question"], "has_image": bool(r["has_image"])} for r in recent],
         "top_keywords": [{"word": w, "count": c} for w, c in top_keywords],
     }
+
+
+def get_flywheel_data() -> dict:
+    """
+    Data Flywheel insights:
+    1. bad_questions: câu hỏi bị đánh giá 👎 nhiều nhất
+    2. gaps: từ khoá hay được hỏi nhưng knowledge base chưa cover tốt
+    """
+    import unicodedata, re
+    from app.services.rag import rag
+
+    with get_conn() as conn:
+        # Câu hỏi bị đánh giá 👎 (nhóm theo nội dung)
+        bad_rows = conn.execute("""
+            SELECT question, answer, COUNT(*) as cnt, MAX(ts) as last_seen
+            FROM feedback
+            WHERE rating = -1 AND LENGTH(question) > 5
+            GROUP BY question
+            ORDER BY cnt DESC
+            LIMIT 15
+        """).fetchall()
+
+        # Tất cả câu hỏi để tính gap
+        all_qs = conn.execute("SELECT question FROM questions").fetchall()
+
+    # Tính tần suất từ khoá (giống get_analytics)
+    stop = {"tôi","bị","như","thế","nào","là","có","và","của","để","cho","khi",
+            "với","trong","từ","đến","được","một","này","không","hay","gì",
+            "về","cần","làm","sao","ra","vì","thì","mà","đã","đang","sẽ"}
+    freq: dict[str, int] = {}
+    for (q,) in all_qs:
+        text = unicodedata.normalize("NFC", q.lower())
+        for word in re.findall(
+            r"[a-zàáảãạăắặẳẵằâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ]+",
+            text
+        ):
+            if len(word) >= 3 and word not in stop:
+                freq[word] = freq.get(word, 0) + 1
+
+    # Kiểm tra từng từ khoá có được knowledge base cover không
+    top_keywords = sorted(freq.items(), key=lambda x: -x[1])[:30]
+    gaps = []
+    for word, count in top_keywords:
+        if count < 2:
+            continue
+        result = rag.search(word, top_k=1)
+        covered = bool(result and len(result) > 50)
+        if not covered:
+            gaps.append({"word": word, "count": count})
+
+    return {
+        "bad_questions": [
+            {
+                "question":  r["question"],
+                "answer":    r["answer"][:200],
+                "bad_count": r["cnt"],
+                "last_seen": r["last_seen"],
+            }
+            for r in bad_rows
+        ],
+        "gaps": gaps[:15],
+    }
+
+
+def save_user_region(device_id: str, region: str) -> None:
+    from datetime import datetime
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO user_regions (device_id, region, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(device_id) DO UPDATE SET region=excluded.region, updated_at=excluded.updated_at
+        """, (device_id, region, datetime.now().isoformat(timespec="seconds")))
+
+
+def get_user_region(device_id: str) -> str:
+    with get_conn() as conn:
+        row = conn.execute("SELECT region FROM user_regions WHERE device_id=?", (device_id,)).fetchone()
+    return row["region"] if row else ""
+
+
+def save_community_tip(device_id: str, title: str, content: str, category: str, region: str) -> int:
+    from datetime import datetime
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO community_tips (device_id, title, content, category, region, created_at) VALUES (?,?,?,?,?,?)",
+            (device_id, title[:200], content[:3000], category, region,
+             datetime.now().isoformat(timespec="seconds")),
+        )
+        return cur.lastrowid
+
+
+def get_pending_tips() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM community_tips WHERE status='pending' ORDER BY created_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def approve_tip(tip_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM community_tips WHERE id=?", (tip_id,)).fetchone()
+        if not row:
+            return None
+        conn.execute("UPDATE community_tips SET status='approved' WHERE id=?", (tip_id,))
+    return dict(row)
+
+
+def reject_tip(tip_id: int, note: str = "") -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE community_tips SET status='rejected', admin_note=? WHERE id=?", (note, tip_id)
+        )
+    return cur.rowcount > 0
+
+
+def save_image_submission(device_id: str, diagnosis: str) -> int:
+    from datetime import datetime
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO image_submissions (device_id, diagnosis, created_at) VALUES (?,?,?)",
+            (device_id, diagnosis, datetime.now().isoformat(timespec="seconds")),
+        )
+        return cur.lastrowid
+
+
+def update_image_feedback(submission_id: int, rating: int) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE image_submissions SET feedback=? WHERE id=?", (rating, submission_id))
+
+
+def get_image_submissions(limit: int = 50) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, device_id, diagnosis, feedback, label, created_at FROM image_submissions ORDER BY id DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def save_feedback(ts: str, rating: int, question: str, answer: str) -> None:

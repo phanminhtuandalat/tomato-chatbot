@@ -13,7 +13,10 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 from app.config import ADMIN_USER, ADMIN_PASSWORD
-from app.database import get_feedback_stats, get_analytics, create_premium_code, list_premium_codes
+from app.database import (
+    get_feedback_stats, get_analytics, create_premium_code, list_premium_codes,
+    get_flywheel_data, get_pending_tips, approve_tip, reject_tip, get_image_submissions,
+)
 from app.services import rag as rag_module
 from app.services.embeddings import index_document, EMBED_ENABLED
 
@@ -232,3 +235,47 @@ async def get_codes(_: None = Depends(require_admin)):
 @router.get("/admin/analytics")
 async def analytics_report(_: None = Depends(require_admin)):
     return JSONResponse(get_analytics())
+
+@router.get("/admin/flywheel")
+async def flywheel_report(_: None = Depends(require_admin)):
+    return JSONResponse(get_flywheel_data())
+
+
+# ---------------------------------------------------------------------------
+# Community tips
+# ---------------------------------------------------------------------------
+
+class RejectRequest(BaseModel):
+    note: str = ""
+
+@router.get("/admin/community-tips")
+async def community_tips(_: None = Depends(require_admin)):
+    return JSONResponse({"tips": get_pending_tips()})
+
+
+@router.post("/admin/community-approve/{tip_id}")
+async def community_approve(tip_id: int, _: None = Depends(require_admin)):
+    tip = approve_tip(tip_id)
+    if not tip:
+        return JSONResponse({"ok": False, "error": "Không tìm thấy góp ý"})
+    # Tạo file .md và đưa vào knowledge base
+    out = _save_doc(tip["title"], tip["content"], f"community_tip_{tip_id}")
+    rag_module.rag.reload()
+    if EMBED_ENABLED:
+        await index_document(out.stem, tip["title"], out.read_text(encoding="utf-8"))
+    return JSONResponse({"ok": True, "filename": out.name})
+
+
+@router.post("/admin/community-reject/{tip_id}")
+async def community_reject(tip_id: int, req: RejectRequest, _: None = Depends(require_admin)):
+    ok = reject_tip(tip_id, req.note)
+    return JSONResponse({"ok": ok})
+
+
+# ---------------------------------------------------------------------------
+# Image dataset
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/image-submissions")
+async def image_submissions(_: None = Depends(require_admin)):
+    return JSONResponse({"submissions": get_image_submissions()})

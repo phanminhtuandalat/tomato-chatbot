@@ -26,6 +26,9 @@ OPENAI_API_KEY      = _get("OPENAI_API_KEY")       # embeddings trực tiếp (t
 OPENROUTER_MODEL    = _get("OPENROUTER_MODEL",      "anthropic/claude-sonnet-4-5")
 OPENROUTER_MODEL_FAST = _get("OPENROUTER_MODEL_FAST", "anthropic/claude-haiku-4-5")
 
+# Weather (tuỳ chọn — OpenWeatherMap free tier)
+OPENWEATHER_API_KEY = _get("OPENWEATHER_API_KEY")
+
 # Zalo (tuỳ chọn — chỉ cần khi dùng Zalo OA)
 ZALO_OA_ACCESS_TOKEN = _get("ZALO_OA_ACCESS_TOKEN")
 ZALO_APP_SECRET      = _get("ZALO_APP_SECRET")

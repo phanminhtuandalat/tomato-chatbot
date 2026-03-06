@@ -4,126 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin — Quản lý tài liệu</title>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Inter', sans-serif;
-      background: #f0f4f0; min-height: 100vh;
-      padding: 24px 16px;
-    }
-    .container { max-width: 680px; margin: 0 auto; }
-    h1 { font-size: 22px; color: #1b5e20; margin-bottom: 4px; }
-    .subtitle { color: #666; font-size: 14px; margin-bottom: 28px; }
-
-    .card {
-      background: white; border-radius: 16px;
-      padding: 24px; margin-bottom: 20px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
-    }
-    .card h2 { font-size: 16px; color: #2e7d32; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-
-    /* Upload vùng kéo thả */
-    .drop-zone {
-      border: 2px dashed #a5d6a7; border-radius: 12px;
-      padding: 36px 20px; text-align: center;
-      cursor: pointer; transition: all 0.2s;
-      background: #f9fbe7;
-    }
-    .drop-zone:hover, .drop-zone.drag { border-color: #2e7d32; background: #e8f5e9; }
-    .drop-zone p { color: #555; font-size: 14px; margin-top: 8px; }
-    .drop-zone .icon { font-size: 40px; }
-    .drop-zone input { display: none; }
-
-    /* URL input */
-    .url-row { display: flex; gap: 10px; }
-    .url-row input {
-      flex: 1; border: 1.5px solid #c8e6c9; border-radius: 10px;
-      padding: 10px 14px; font-size: 14px; font-family: inherit;
-      outline: none; background: #f9fbe7;
-    }
-    .url-row input:focus { border-color: #2e7d32; }
-
-    /* Nút */
-    .btn {
-      background: linear-gradient(135deg, #2e7d32, #43a047);
-      color: white; border: none; border-radius: 10px;
-      padding: 10px 20px; font-size: 14px; font-family: inherit;
-      font-weight: 600; cursor: pointer; transition: all 0.15s;
-      white-space: nowrap;
-    }
-    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
-    .btn:active { transform: scale(0.97); }
-    .btn:disabled { background: #a5d6a7; cursor: not-allowed; transform: none; }
-
-    /* Danh sách tài liệu */
-    .doc-list { display: flex; flex-direction: column; gap: 10px; }
-    .doc-item {
-      display: flex; align-items: center; gap: 12px;
-      padding: 12px 14px; background: #f9f9f9;
-      border-radius: 10px; border: 1px solid #e8e8e8;
-    }
-    .doc-icon { font-size: 22px; flex-shrink: 0; }
-    .doc-info { flex: 1; min-width: 0; }
-    .doc-name { font-size: 14px; font-weight: 600; color: #212121; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .doc-meta { font-size: 12px; color: #888; margin-top: 2px; }
-    .doc-delete {
-      background: none; border: none; color: #bbb;
-      cursor: pointer; font-size: 18px; padding: 4px;
-      transition: color 0.15s; flex-shrink: 0;
-    }
-    .doc-delete:hover { color: #ef5350; }
-
-    /* Log */
-    .log {
-      background: #1a1a2e; color: #69f0ae;
-      border-radius: 10px; padding: 14px 16px;
-      font-family: monospace; font-size: 13px;
-      min-height: 60px; max-height: 160px;
-      overflow-y: auto; white-space: pre-wrap;
-      display: none;
-    }
-    .log.show { display: block; }
-
-    .back-link { display: inline-block; margin-bottom: 20px; color: #2e7d32; text-decoration: none; font-size: 14px; }
-    .back-link:hover { text-decoration: underline; }
-
-    .empty { color: #aaa; font-size: 14px; text-align: center; padding: 16px; }
-
-    /* Analytics */
-    .stat-row { display: flex; gap: 12px; margin-bottom: 20px; }
-    .stat-box {
-      flex: 1; background: #f9fbe7; border-radius: 12px;
-      padding: 14px 12px; text-align: center;
-      border: 1.5px solid #c8e6c9;
-    }
-    .stat-box .num { font-size: 28px; font-weight: 700; color: #2e7d32; }
-    .stat-box .lbl { font-size: 12px; color: #888; margin-top: 4px; }
-
-    .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 80px; margin-bottom: 6px; }
-    .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-    .bar { width: 100%; background: #a5d6a7; border-radius: 4px 4px 0 0; min-height: 4px; transition: background 0.2s; }
-    .bar:hover { background: #2e7d32; }
-    .bar-lbl { font-size: 10px; color: #999; white-space: nowrap; }
-    .bar-val { font-size: 10px; color: #555; font-weight: 600; }
-
-    .keyword-cloud { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
-    .kw-tag {
-      background: #e8f5e9; color: #2e7d32;
-      border-radius: 20px; padding: 4px 12px;
-      font-size: 13px; font-weight: 500;
-      border: 1px solid #a5d6a7;
-    }
-    .kw-tag.big { font-size: 15px; font-weight: 700; background: #c8e6c9; }
-
-    .q-item {
-      padding: 10px 12px; background: #f9f9f9;
-      border-radius: 10px; border: 1px solid #eee;
-      margin-bottom: 8px;
-    }
-    .q-item .q-text { font-size: 13px; color: #333; }
-    .q-item .q-meta { font-size: 11px; color: #aaa; margin-top: 4px; }
-  </style>
+  <link rel="stylesheet" href="/static/admin.css" />
 </head>
 <body>
 <div class="container">
@@ -155,7 +36,7 @@
       <p style="margin-top:6px;color:#aaa;font-size:13px;">JPG, PNG, WEBP — ảnh chụp sách, infographic, bảng biểu</p>
       <input type="file" id="imgInput" accept="image/*" onchange="uploadImage(event)" />
     </div>
-    <div id="imgPreviewWrap" style="display:none;margin-top:12px;display:none;align-items:center;gap:12px;">
+    <div id="imgPreviewWrap" style="display:none;margin-top:12px;align-items:center;gap:12px;">
       <img id="imgPreview" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid #a5d6a7;" />
       <div>
         <div id="imgPreviewName" style="font-size:13px;font-weight:600;"></div>
@@ -273,6 +154,36 @@
     </div>
   </div>
 
+  <!-- Data Flywheel -->
+  <div class="card">
+    <h2>🔄 Data Flywheel</h2>
+    <div class="flywheel-tip">
+      💡 <strong>Tự động phát hiện điểm yếu:</strong> Câu hỏi nhận 👎 nhiều + từ khoá hay hỏi nhưng chưa có tài liệu — giúp bạn biết cần bổ sung kiến thức gì.
+    </div>
+
+    <div style="font-size:13px;font-weight:600;color:#b71c1c;margin-bottom:10px;">👎 Câu hỏi chưa trả lời tốt</div>
+    <div id="badQuestions"><div class="empty">Đang tải...</div></div>
+
+    <div style="font-size:13px;font-weight:600;color:#e65100;margin:20px 0 10px;">⚠️ Từ khoá chưa có tài liệu</div>
+    <p style="font-size:12px;color:#888;margin-bottom:10px;">Nông dân hay hỏi về những chủ đề này nhưng knowledge base chưa cover tốt:</p>
+    <div class="gap-cloud" id="gapCloud"><div class="empty">Đang tải...</div></div>
+    <div id="gapEmpty" style="display:none;" class="empty">✅ Knowledge base đang cover tốt tất cả chủ đề phổ biến!</div>
+  </div>
+
+  <!-- Community Tips -->
+  <div class="card">
+    <h2>🌱 Góp ý cộng đồng</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">Kinh nghiệm từ nông dân đang chờ duyệt. Duyệt → tự động thêm vào knowledge base.</p>
+    <div id="communityList"><div class="empty">Đang tải...</div></div>
+  </div>
+
+  <!-- Image Dataset -->
+  <div class="card">
+    <h2>📷 Dataset ảnh bệnh</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">Ảnh người dùng gửi kèm chẩn đoán của AI — dùng để xây dựng dataset bệnh cà chua Việt Nam.</p>
+    <div id="imageDatasetList"><div class="empty">Đang tải...</div></div>
+  </div>
+
   <!-- Feedback -->
   <div class="card">
     <h2>📊 Đánh giá từ nông dân</h2>
@@ -296,352 +207,6 @@
   </div>
 </div>
 
-<script>
-  const log = document.getElementById('log');
-
-  function writeLog(msg, color) {
-    log.classList.add('show');
-    log.textContent += (color === 'error' ? '✗ ' : '✓ ') + msg + '\n';
-    log.scrollTop = log.scrollHeight;
-  }
-
-  // Kéo thả
-  const dropZone = document.getElementById('dropZone');
-  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
-  dropZone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropZone.classList.remove('drag');
-    const file = e.dataTransfer.files[0];
-    if (file) sendFile(file);
-  });
-
-  // Kéo thả ảnh
-  const imgDropZone = document.getElementById('imgDropZone');
-  imgDropZone.addEventListener('dragover', e => { e.preventDefault(); imgDropZone.classList.add('drag'); });
-  imgDropZone.addEventListener('dragleave', () => imgDropZone.classList.remove('drag'));
-  imgDropZone.addEventListener('drop', e => {
-    e.preventDefault(); imgDropZone.classList.remove('drag');
-    const file = e.dataTransfer.files[0];
-    if (file) processImage(file);
-  });
-
-  async function uploadImage(e) {
-    const file = e.target.files[0];
-    if (file) await processImage(file);
-    e.target.value = '';
-  }
-
-  async function processImage(file) {
-    const title = document.getElementById('imgTitle').value.trim();
-    const preview = document.getElementById('imgPreviewWrap');
-    const previewImg = document.getElementById('imgPreview');
-    const previewName = document.getElementById('imgPreviewName');
-
-    previewImg.src = URL.createObjectURL(file);
-    previewName.textContent = file.name;
-    preview.style.display = 'flex';
-
-    writeLog(`Đang phân tích ảnh: ${file.name} (AI đang đọc...)`);
-
-    const form = new FormData();
-    form.append('file', file);
-    if (title) form.append('title', title);
-
-    try {
-      const res = await fetch('/admin/upload-image', { method: 'POST', body: form });
-      const data = await res.json();
-      preview.style.display = 'none';
-      if (data.ok) {
-        writeLog(`Đã trích xuất: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
-        if (data.preview) writeLog(`Nội dung: ${data.preview}...`);
-        loadDocs();
-      } else {
-        writeLog(data.error || 'Lỗi không xác định', 'error');
-      }
-    } catch { preview.style.display = 'none'; writeLog('Lỗi kết nối', 'error'); }
-  }
-
-  async function uploadFile(e) {
-    const file = e.target.files[0];
-    if (file) await sendFile(file);
-    e.target.value = '';
-  }
-
-  async function sendFile(file) {
-    writeLog(`Đang upload: ${file.name}`);
-    const form = new FormData();
-    form.append('file', file);
-    try {
-      const res = await fetch('/admin/upload', { method: 'POST', body: form });
-      const data = await res.json();
-      if (data.ok) {
-        writeLog(`Đã thêm: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
-        loadDocs();
-      } else {
-        writeLog(data.error || 'Lỗi không xác định', 'error');
-      }
-    } catch { writeLog('Lỗi kết nối', 'error'); }
-  }
-
-  async function uploadUrl() {
-    const url = document.getElementById('urlInput').value.trim();
-    if (!url) return;
-    writeLog(`Đang tải URL: ${url}`);
-    try {
-      const res = await fetch('/admin/upload-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        writeLog(`Đã thêm: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
-        document.getElementById('urlInput').value = '';
-        loadDocs();
-      } else {
-        writeLog(data.error || 'Lỗi không xác định', 'error');
-      }
-    } catch { writeLog('Lỗi kết nối', 'error'); }
-  }
-
-  async function deleteDoc(filename) {
-    if (!confirm(`Xoá tài liệu "${filename}"?`)) return;
-    const res = await fetch('/admin/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename }),
-    });
-    const data = await res.json();
-    if (data.ok) { writeLog(`Đã xoá: ${filename}`); loadDocs(); }
-  }
-
-  const ICONS = { pdf: '📕', docx: '📘', txt: '📄', md: '📗', default: '📄' };
-
-  async function loadDocs() {
-    const res = await fetch('/admin/docs');
-    const data = await res.json();
-    const list = document.getElementById('docList');
-    document.getElementById('docCount').textContent = data.docs.length;
-
-    if (!data.docs.length) {
-      list.innerHTML = '<div class="empty">Chưa có tài liệu nào</div>';
-      return;
-    }
-
-    list.innerHTML = data.docs.map(d => {
-      const ext = d.name.split('.').pop();
-      const icon = ICONS[ext] || ICONS.default;
-      return `
-        <div class="doc-item">
-          <span class="doc-icon">${icon}</span>
-          <div class="doc-info">
-            <div class="doc-name">${d.name}</div>
-            <div class="doc-meta">${d.size_kb} KB · ${d.modified}</div>
-          </div>
-          <button class="doc-delete" onclick="deleteDoc('${d.name}')" title="Xoá">🗑</button>
-        </div>`;
-    }).join('');
-  }
-
-  loadDocs();
-  loadAnalytics();
-  loadFeedback();
-  checkPushEnabled();
-  loadCodes();
-
-  function fillCode(code, requests, images, maxUses, note) {
-    document.getElementById('codeInput').value    = code;
-    document.getElementById('codeRequests').value = requests;
-    document.getElementById('codeImages').value   = images;
-    document.getElementById('codeMaxUses').value  = maxUses;
-    document.getElementById('codeNote').value     = note;
-  }
-
-  async function createCode() {
-    const code     = document.getElementById('codeInput').value.trim().toUpperCase();
-    const requests = parseInt(document.getElementById('codeRequests').value) || 0;
-    const images   = parseInt(document.getElementById('codeImages').value) || 0;
-    const max_uses = parseInt(document.getElementById('codeMaxUses').value) || 1;
-    const note     = document.getElementById('codeNote').value.trim();
-    const result   = document.getElementById('codeResult');
-    if (!code || requests < 1) { alert('Nhập mã và số câu hỏi'); return; }
-    const res  = await fetch('/admin/premium-code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, requests, images, max_uses, note }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      result.innerHTML = `<span style="color:#2e7d32">✓ Đã tạo mã <b>${data.code}</b></span>`;
-      loadCodes();
-    } else {
-      result.innerHTML = `<span style="color:#ef5350">✗ ${data.error}</span>`;
-    }
-  }
-
-  async function loadCodes() {
-    const res  = await fetch('/admin/premium-codes');
-    const data = await res.json();
-    const list = document.getElementById('codeList');
-    if (!data.codes.length) { list.innerHTML = '<div class="empty">Chưa có mã nào</div>'; return; }
-    list.innerHTML = data.codes.map(c => {
-      const full = c.used_count >= c.max_uses;
-      const statusBg = full ? '#ffebee' : (c.used_count > 0 ? '#fff8e1' : '#e8f5e9');
-      const statusColor = full ? '#ef5350' : (c.used_count > 0 ? '#f57c00' : '#2e7d32');
-      const statusText = full ? 'Hết lượt' : (c.used_count > 0 ? `${c.used_count}/${c.max_uses} lượt` : 'Chưa dùng');
-      const ips = c.redemptions.map(r =>
-        `<div style="font-size:11px;color:#aaa;padding-left:4px;">· ${r.ip} <span style="color:#bbb;">${r.ts}</span></div>`
-      ).join('');
-      return `
-      <div class="doc-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
-        <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
-          <span style="font-size:15px;font-weight:700;font-family:monospace;color:#1b5e20;">${c.code}</span>
-          <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${statusBg};color:${statusColor};">${statusText}</span>
-        </div>
-        <div style="font-size:12px;color:#555;">+${c.requests} câu hỏi · +${c.images} ảnh · tối đa ${c.max_uses} người${c.note ? ' · ' + c.note : ''}</div>
-        ${ips}
-      </div>`;
-    }).join('');
-  }
-
-  async function checkPushEnabled() {
-    const res = await fetch('/api/vapid-public-key').catch(() => null);
-    if (!res?.ok) return;
-    const { enabled } = await res.json();
-    if (!enabled) {
-      document.getElementById('pushCard').innerHTML = `
-        <h2>🔔 Gửi thông báo đẩy</h2>
-        <div style="background:#fff8e1;border-left:4px solid #f9a825;padding:12px 16px;border-radius:8px;font-size:13px;color:#5d4037;">
-          <strong>Chưa cấu hình VAPID keys.</strong><br>
-          Thêm 2 biến môi trường vào Railway:<br><br>
-          <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">VAPID_PUBLIC_KEY</code> và
-          <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">VAPID_PRIVATE_KEY</code><br><br>
-          Chạy lệnh sau để tạo keys: <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">python generate_vapid.py</code>
-        </div>`;
-    }
-  }
-
-  function fillPush(title, body) {
-    document.getElementById('pushTitle').value = title;
-    document.getElementById('pushBody').value = body;
-  }
-
-  async function sendPush() {
-    const title = document.getElementById('pushTitle').value.trim();
-    const body  = document.getElementById('pushBody').value.trim();
-    if (!title || !body) { alert('Vui lòng nhập tiêu đề và nội dung'); return; }
-
-    const btn = document.getElementById('pushBtn');
-    const result = document.getElementById('pushResult');
-    btn.disabled = true;
-    btn.textContent = 'Đang gửi...';
-    result.textContent = '';
-
-    try {
-      const res = await fetch('/admin/push-send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, body, url: '/' }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        if (data.reason === 'no_subscribers') {
-          result.innerHTML = '<span style="color:#f57c00;">⚠️ Chưa có thiết bị nào đăng ký nhận thông báo.</span>';
-        } else {
-          result.innerHTML = `<span style="color:#2e7d32;">✓ Đã gửi thành công đến <b>${data.sent}</b> thiết bị${data.failed ? ` (${data.failed} lỗi)` : ''}.</span>`;
-        }
-      } else {
-        result.innerHTML = `<span style="color:#ef5350;">✗ ${data.detail || 'Lỗi không xác định'}</span>`;
-      }
-    } catch {
-      result.innerHTML = '<span style="color:#ef5350;">✗ Lỗi kết nối</span>';
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '📤 Gửi thông báo';
-    }
-  }
-
-  async function loadAnalytics() {
-    const res = await fetch('/admin/analytics');
-    const d = await res.json();
-
-    document.getElementById('aTotalQ').textContent   = d.total_questions;
-    document.getElementById('aTotalImg').textContent = d.total_with_image;
-
-    // Bar chart 7 ngày
-    const maxCount = Math.max(1, ...d.daily.map(x => x.count));
-    const chart  = document.getElementById('barChart');
-    const labels = document.getElementById('barLabels');
-
-    // Tạo đủ 7 ngày kể cả ngày 0 câu hỏi
-    const days = {};
-    for (let i = 6; i >= 0; i--) {
-      const dt = new Date(); dt.setDate(dt.getDate() - i);
-      const key = dt.toISOString().slice(0,10);
-      days[key] = 0;
-    }
-    d.daily.forEach(x => { if (days[x.day] !== undefined) days[x.day] = x.count; });
-
-    chart.innerHTML = Object.entries(days).map(([day, cnt]) => {
-      const h = Math.max(4, Math.round((cnt / maxCount) * 72));
-      const label = day.slice(5); // MM-DD
-      return `<div class="bar-col">
-        <div class="bar-val">${cnt || ''}</div>
-        <div class="bar" style="height:${h}px" title="${cnt} câu hỏi ngày ${day}"></div>
-      </div>`;
-    }).join('');
-
-    labels.innerHTML = Object.keys(days).map(day =>
-      `<div style="flex:1;text-align:center;font-size:10px;color:#999;">${day.slice(5)}</div>`
-    ).join('');
-
-    // Từ khoá
-    const cloud = document.getElementById('keywordCloud');
-    if (!d.top_keywords.length) {
-      cloud.innerHTML = '<div class="empty">Chưa có dữ liệu</div>';
-    } else {
-      const maxKw = d.top_keywords[0].count;
-      cloud.innerHTML = d.top_keywords.map(k =>
-        `<span class="kw-tag ${k.count >= maxKw * 0.6 ? 'big' : ''}">${k.word} <b>${k.count}</b></span>`
-      ).join('');
-    }
-
-    // Câu hỏi gần nhất
-    const recent = document.getElementById('recentQuestions');
-    if (!d.recent.length) {
-      recent.innerHTML = '<div class="empty">Chưa có câu hỏi nào</div>';
-    } else {
-      recent.innerHTML = d.recent.map(q => `
-        <div class="q-item">
-          <div class="q-text">${q.has_image ? '📷 ' : ''}${q.question}</div>
-          <div class="q-meta">${q.ts.replace('T', ' ')}</div>
-        </div>`).join('');
-    }
-  }
-
-  async function loadFeedback() {
-    const res = await fetch('/admin/feedback');
-    const data = await res.json();
-    document.getElementById('fbGood').textContent  = data.good;
-    document.getElementById('fbBad').textContent   = data.bad;
-    document.getElementById('fbTotal').textContent = data.total;
-
-    const list = document.getElementById('feedbackList');
-    if (!data.items.length) {
-      list.innerHTML = '<div class="empty">Chưa có đánh giá nào</div>';
-      return;
-    }
-    list.innerHTML = data.items.map(i => `
-      <div class="doc-item" style="flex-direction:column;align-items:flex-start;gap:6px;">
-        <div style="display:flex;justify-content:space-between;width:100%;">
-          <span style="font-size:18px;">${i.rating === 1 ? '👍' : '👎'}</span>
-          <span style="font-size:11px;color:#aaa;">${i.ts}</span>
-        </div>
-        <div style="font-size:13px;font-weight:600;color:#333;">❓ ${i.question || '(ảnh)'}</div>
-        <div style="font-size:12px;color:#666;line-height:1.5;">💬 ${i.answer.slice(0, 150)}${i.answer.length > 150 ? '...' : ''}</div>
-      </div>`).join('');
-  }
-</script>
+<script src="/static/admin.js"></script>
 </body>
 </html>
