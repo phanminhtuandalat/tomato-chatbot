@@ -347,44 +347,52 @@ Quy tắc action:
 
 async def generate_correction_form(question: str, wrong_answer: str) -> dict:
     """
-    Phân tích câu trả lời sai, tạo bộ câu hỏi trắc nghiệm để thu thập thông tin đúng.
+    Phân tích từng điểm sai trong câu trả lời, tạo câu hỏi trắc nghiệm sát với nội dung đó.
     Trả về: {intro, questions: [{id, type, label, options?, placeholder?, unit?}]}
     """
-    prompt = f"""Câu hỏi người dùng: {question[:200]}
-Câu trả lời AI bị báo sai: {wrong_answer[:300]}
+    prompt = f"""Bạn là chuyên gia nông nghiệp. Người dùng báo câu trả lời AI sai.
 
-Tạo 2-4 câu hỏi ngắn để thu thập thông tin đúng từ nông dân. Ưu tiên câu hỏi trắc nghiệm và số liệu cụ thể.
+Câu hỏi: {question[:200]}
+Câu trả lời AI (bị báo sai): {wrong_answer[:400]}
 
-Trả về JSON (chỉ JSON):
-{{"intro":"Bà con cho biết thông tin đúng nhé:","questions":[
-  {{"id":"q1","type":"choice","label":"Mật độ trồng đúng là?","options":["20,000 cây/ha","33,000 cây/ha","40,000 cây/ha","Khác"]}},
-  {{"id":"q2","type":"number","label":"Khoảng cách hàng (cm)","placeholder":"ví dụ: 70","unit":"cm"}},
-  {{"id":"q3","type":"yesno","label":"Áp dụng cho tất cả giống cà chua?"}},
-  {{"id":"q4","type":"text","label":"Ghi chú thêm (tuỳ chọn)","placeholder":"..."}}
+Bước 1 — Phân tích: Liệt kê từng thông tin cụ thể trong câu trả lời trên có thể sai:
+ví dụ: "mật độ 20,000 cây/ha", "khoảng cách 50x50cm", "bón 200kg/ha", "dùng thuốc X"...
+
+Bước 2 — Tạo câu hỏi: Với mỗi thông tin có thể sai, tạo 1 câu hỏi trắc nghiệm:
+- Đưa GIÁ TRỊ SAI (từ câu trả lời AI) vào làm 1 option, để người dùng dễ nhận ra và chọn đúng
+- Thêm 2-3 giá trị đúng phổ biến làm option khác
+- Luôn có option "Khác" để người dùng tự nhập
+
+Trả về JSON (chỉ JSON, không giải thích):
+{{"intro":"Câu trả lời có thể sai ở chỗ nào? Bà con chọn thông tin đúng nhé:","questions":[
+  {{"id":"q1","type":"choice","label":"Mật độ trồng là bao nhiêu cây/ha?","options":["20,000 cây/ha (AI trả lời)","33,000 cây/ha","40,000 cây/ha","Khác"]}},
+  {{"id":"q2","type":"choice","label":"Khoảng cách trồng hàng × cây?","options":["50×50cm (AI trả lời)","60×40cm","70×50cm","Khác"]}},
+  {{"id":"q3","type":"text","label":"Thông tin nào khác còn sai? (tuỳ chọn)","placeholder":"Ví dụ: liều phân bón, tên thuốc..."}}
 ]}}
 
 Quy tắc:
-- type "choice": 3-5 options thực tế, luôn có "Khác" ở cuối
-- type "number": nhập số, có placeholder, unit tuỳ chọn
-- type "yesno": chỉ Có/Không
-- type "text": nhập tự do ngắn, tuỳ chọn
-- Tối đa 4 câu, đi thẳng vào vấn đề"""
+- Mỗi câu hỏi cho 1 điểm thông tin cụ thể (số liệu, tên thuốc, kỹ thuật)
+- Ghi rõ "(AI trả lời)" sau giá trị sai để người dùng dễ nhận biết
+- type "choice": khi có giá trị cụ thể để so sánh
+- type "number": khi cần nhập số chính xác (kèm unit)
+- type "text": câu hỏi mở, tuỳ chọn, đặt cuối
+- Tối đa 4 câu, chỉ hỏi những gì thực sự có trong câu trả lời sai"""
 
-    raw = await _call([{"role": "user", "content": prompt}], model=OPENROUTER_MODEL_FAST, max_tokens=400)
+    raw = await _call([{"role": "user", "content": prompt}], model=OPENROUTER_MODEL, max_tokens=600)
     import json, re
     try:
         m = re.search(r'\{.*\}', raw, re.DOTALL)
         if m:
             data = json.loads(m.group())
-            if "questions" in data:
+            if "questions" in data and len(data["questions"]) > 0:
                 return data
     except (json.JSONDecodeError, ValueError, KeyError) as e:
-        log.warning("generate_correction_form parse error: %s", e)
+        log.warning("generate_correction_form parse error: %s | raw: %.200s", e, raw)
 
     return {
-        "intro": "Bà con cho biết thông tin đúng nhé:",
+        "intro": "Câu trả lời sai ở chỗ nào? Bà con cho biết thông tin đúng nhé:",
         "questions": [
-            {"id": "q1", "type": "text", "label": "Thông tin đúng là gì?", "placeholder": "Mô tả cụ thể, ví dụ: mật độ 40,000 cây/ha..."},
+            {"id": "q1", "type": "text", "label": "Thông tin đúng là gì?", "placeholder": "Ví dụ: mật độ phải là 40,000 cây/ha, khoảng cách 70×50cm..."},
             {"id": "q2", "type": "yesno", "label": "Bà con chắc chắn về thông tin này không?"},
         ]
     }
