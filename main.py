@@ -5,13 +5,14 @@ Entry point — khởi tạo app và mount routers.
 import logging
 import os
 import shutil
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
@@ -62,6 +63,31 @@ app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(zalo.router)
 app.include_router(push.router)
+
+
+log = logging.getLogger("app.errors")
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Bắt tất cả lỗi 500 không xử lý được — log + notify admin qua Telegram."""
+    tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    tb_short  = "".join(tb_lines[-5:]).strip()  # 5 dòng cuối của traceback
+    detail    = f"{type(exc).__name__}: {str(exc)[:300]}"
+
+    log.error("Unhandled exception [%s %s]\n%s", request.method, request.url.path, "".join(tb_lines))
+
+    from app.services.notify import push
+    await push(
+        kind="error",
+        title=f"{request.method} {request.url.path} — {type(exc).__name__}",
+        reason=f"{str(exc)[:200]}\n\n{tb_short[:400]}",
+    )
+
+    return JSONResponse(
+        status_code=500,
+        content={"error": "server_error", "detail": "Lỗi server không xác định. Admin đã được thông báo tự động."},
+    )
 
 
 @app.get("/")

@@ -50,14 +50,16 @@ async def _send(text: str) -> None:
 
 
 def _format(e: dict) -> str:
-    title = e["title"][:80]
+    title  = e["title"][:80]
+    reason = e.get("reason", "")
     if e["kind"] == "pending_review":
         return f"⏳ <b>Cần duyệt:</b> {title}"
     if e["kind"] == "auto_rejected":
-        reason = e.get("reason", "")[:100]
-        return f"❌ <b>Từ chối tự động:</b> {title}" + (f"\n    {reason}" if reason else "")
+        return f"❌ <b>Từ chối tự động:</b> {title}" + (f"\n    {reason[:100]}" if reason else "")
     if e["kind"] == "correction":
         return f"✏️ <b>User sửa KB:</b> {title}"
+    if e["kind"] == "error":
+        return f"🚨 <b>LỖI SERVER:</b> {title}\n<pre>{reason[:400]}</pre>"
     return f"ℹ️ {title}"
 
 
@@ -82,7 +84,9 @@ async def push(kind: str, title: str, reason: str = "") -> None:
     try:
         async with _get_lock():
             _queue.append({"kind": kind, "title": title, "reason": reason})
-            if len(_queue) >= _BATCH_SIZE or (time.time() - _last_sent) >= _BATCH_WINDOW:
+            # Lỗi server luôn gửi ngay, không chờ batch
+            force = (kind == "error")
+            if force or len(_queue) >= _BATCH_SIZE or (time.time() - _last_sent) >= _BATCH_WINDOW:
                 await _flush()
     except Exception as e:
         log.warning("notify.push error: %s", e)

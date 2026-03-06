@@ -240,8 +240,14 @@ async function handleCorrectionTurn(text) {
         submission_id: correctionState.submissionId,
       }),
     });
-    const data = await res.json();
     removeTyping();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      addCorrectionBotMessage('⚠️ ' + (err.detail || `Lỗi server (${res.status}). Admin đã được thông báo.`));
+      endCorrectionMode();
+      return;
+    }
+    const data = await res.json();
 
     correctionState.turns.push({ role: 'user',      content: text });
     correctionState.turns.push({ role: 'assistant', content: data.reply });
@@ -265,9 +271,9 @@ async function handleCorrectionTurn(text) {
     } else if (data.action === 'cancel') {
       endCorrectionMode();
     }
-  } catch {
+  } catch (err) {
     removeTyping();
-    addCorrectionBotMessage('Lỗi kết nối. Vui lòng thử lại.');
+    addCorrectionBotMessage('⚠️ Mất kết nối đến server. Vui lòng kiểm tra mạng và thử lại.');
   }
 }
 
@@ -577,9 +583,9 @@ async function sendMessage() {
     if (text) history.push({ role: 'user', content: text });
     history.push({ role: 'assistant', content: answer });
     if (history.length > 20) history = history.slice(-20);
-  } catch {
+  } catch (err) {
     removeTyping();
-    addBotMessage('Lỗi kết nối. Vui lòng thử lại sau.');
+    addBotMessage('⚠️ Mất kết nối đến server. Vui lòng kiểm tra mạng và thử lại.');
   } finally {
     sendBtn.disabled = false;
     inputEl.focus();
