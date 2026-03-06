@@ -148,11 +148,16 @@ function showTyping() {
 function removeTyping() { document.getElementById('typing')?.remove(); }
 
 /* ── Feedback ── */
-function showBonusToast(bonus) {
+function showBonusToast(points, questionsAdded) {
+  if (!points && !questionsAdded) return;
   const toast = document.getElementById('bonusToast');
-  toast.textContent = `🎁 +${bonus} câu hỏi! Cảm ơn phản hồi của bà con`;
+  if (questionsAdded > 0) {
+    toast.textContent = `🎁 +${points} điểm → thêm ${questionsAdded} lượt hỏi! Cảm ơn bà con`;
+  } else {
+    toast.textContent = `⭐ +${points} điểm! Tích đủ 20 điểm = 1 lượt hỏi`;
+  }
   toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 3000);
+  setTimeout(() => toast.classList.remove('show'), 4000);
   updateQuota();
 }
 
@@ -164,7 +169,7 @@ async function _postFeedback(payload) {
   }).catch(() => null);
   if (res?.ok) {
     const data = await res.json();
-    if (data.bonus) showBonusToast(data.bonus);
+    if (data.points) showBonusToast(data.points, data.questions_added || 0);
   }
 }
 
@@ -427,7 +432,7 @@ async function submitCorrectionForm(msgId) {
     } else {
       addCorrectionBotMessage('✓ Đã ghi nhận. Chúng tôi sẽ xem xét và cập nhật sớm. Cảm ơn bà con!');
     }
-    if (data.bonus) showBonusToast(data.bonus);
+    if (data.points) showBonusToast(data.points, data.questions_added || 0);
     endCorrectionMode();
   } catch (err) {
     clearTimeout(progressTimer); clearTimeout(fetchTimeout);
@@ -604,13 +609,25 @@ async function updateQuota() {
   try {
     const res = await fetch('/api/quota');
     if (!res.ok) return;
-    const { free, premium } = await res.json();
+    const { free, premium, points } = await res.json();
     const badge = document.getElementById('quotaBadge');
     const totalPremium = premium.requests || 0;
-    if (totalPremium > 0) { badge.textContent = `🎟️ ${totalPremium} câu premium`; badge.className = 'quota-badge premium'; }
-    else if (free.requests <= 0) { badge.textContent = '⛔ Hết quota hôm nay'; badge.className = 'quota-badge low'; }
-    else if (free.requests <= 2) { badge.textContent = `⚠️ Còn ${free.requests} câu`; badge.className = 'quota-badge low'; }
-    else { badge.textContent = `💬 Còn ${free.requests} câu`; badge.className = 'quota-badge'; }
+    const pts = points?.current || 0;
+    const perQ = points?.per_question || 20;
+
+    if (totalPremium > 0) {
+      badge.textContent = `🎟️ ${totalPremium} câu premium`;
+      badge.className = 'quota-badge premium';
+    } else if (free.requests <= 0) {
+      badge.textContent = pts > 0 ? `⛔ Hết quota · ⭐${pts}/${perQ}đ` : '⛔ Hết quota hôm nay';
+      badge.className = 'quota-badge low';
+    } else if (free.requests <= 2) {
+      badge.textContent = `⚠️ Còn ${free.requests} câu · ⭐${pts}đ`;
+      badge.className = 'quota-badge low';
+    } else {
+      badge.textContent = pts > 0 ? `💬 Còn ${free.requests} câu · ⭐${pts}đ` : `💬 Còn ${free.requests} câu`;
+      badge.className = 'quota-badge';
+    }
   } catch {}
 }
 updateQuota();
@@ -684,7 +701,7 @@ async function submitTip() {
         msgEl.style.color = '#2e7d32';
         msgEl.textContent = '✓ Cảm ơn bà con! Admin sẽ xem xét và bổ sung vào kho kiến thức.';
       }
-      if (data.bonus) showBonusToast(data.bonus);
+      if (data.points) showBonusToast(data.points, data.questions_added || 0);
       setTimeout(closeTipModal, 2800);
     } else {
       msgEl.style.color = '#ef5350';

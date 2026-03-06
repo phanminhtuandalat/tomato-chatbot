@@ -20,13 +20,23 @@ from app.services.embeddings import vector_search, EMBED_ENABLED
 from app.database import (
     save_feedback, save_question, get_premium_quota, consume_premium, redeem_code,
     save_user_region, get_user_region, save_community_tip, save_image_submission,
-    add_bonus_quota, update_tip_ai_result, approve_tip, reject_tip,
+    add_points, get_points, update_tip_ai_result, approve_tip, reject_tip,
+    POINTS_PER_QUESTION,
 )
 from datetime import datetime as _dt
 from app.services.weather import get_weather, REGION_NAMES
 from app.services import notify
 
 router = APIRouter()
+
+
+def _pts_response(pts: dict) -> dict:
+    """Chuẩn hoá dict điểm trả về client."""
+    return {
+        "points":          pts.get("points_added", 0),
+        "questions_added": pts.get("questions_added", 0),
+        "current_points":  pts.get("current_points", 0),
+    }
 
 # ---------------------------------------------------------------------------
 # Rate limiting đơn giản — in-memory, 30 req/phút/IP
@@ -212,9 +222,12 @@ async def api_quota(request: Request):
     _, used_q = _daily_log.get(ip, ("", 0))
     _, used_i = _image_log.get(ip, ("", 0))
     premium   = get_premium_quota(ip)
+    pts       = get_points(ip)
     return JSONResponse({
         "free":    {"requests": max(0, DAILY_LIMIT - used_q), "images": max(0, IMAGE_LIMIT - used_i)},
         "premium": premium,
+        "points":  {"current": pts["current_points"], "total_earned": pts["total_earned"],
+                    "per_question": POINTS_PER_QUESTION},
     })
 
 @router.post("/api/feedback")
@@ -241,13 +254,15 @@ async def api_feedback(req: FeedbackRequest, request: Request):
         except Exception:
             pass
 
-    # Thưởng quota: 👎 + lý do = +2, còn lại = +1
-    device_id = _get_device_id(request)
-    has_reason = bool(req.reason.strip())
-    bonus = 2 if (req.rating == -1 and has_reason) else 1
-    add_bonus_quota(device_id, bonus)
+    # Thưởng điểm: chỉ 👎 có lý do ≥20 ký tự mới được điểm (tối đa 2 lần/ngày)
+    device_id  = _get_device_id(request)
+    has_reason = len(req.reason.strip()) >= 20
+    if req.rating == -1 and has_reason:
+        pts = add_points(device_id, "feedback", 5, daily_limit=2)
+    else:
+        pts = {"points_added": 0, "questions_added": 0, "current_points": 0}
 
-    return JSONResponse({"ok": True, "bonus": bonus})
+    return JSONResponse({"ok": True, **_pts_response(pts)})
 
 
 # ---------------------------------------------------------------------------
@@ -332,8 +347,8 @@ async def api_correct_chat(req: CorrectChatRequest, request: Request):
             except Exception:
                 pass
 
-        add_bonus_quota(device_id, 3)
-        result["bonus"] = 3
+        pts = add_points(device_id, "correction_verified", 15)
+        result.update(_pts_response(pts))
         await notify.push("correction", title)  # không raise — đã wrap try/except trong notify
 
     return JSONResponse(result)
@@ -358,8 +373,7 @@ async def api_correct(req: CorrectionRequest, request: Request):
             pass
 
     if not req.correction.strip():
-        add_bonus_quota(device_id, 2)
-        return JSONResponse({"verified": False, "bonus": 2})
+        return JSONResponse({"verified": False, "points": 0, "questions_added": 0, "current_points": 0})
 
     # Kiểm chứng thông tin sửa bằng Sonnet
     from app.services.llm import verify_and_correct
@@ -379,12 +393,12 @@ async def api_correct(req: CorrectionRequest, request: Request):
         update_tip_ai_result(tip_id, result["confidence"], result["reason"], "approve")
         approve_tip(tip_id)
         _save_tip_as_doc(tip_id, title, content)
-        add_bonus_quota(device_id, 3)  # thưởng nhiều hơn vì đóng góp có giá trị
+        pts = add_points(device_id, "correction_verified", 15)
         return JSONResponse({
             "verified":         True,
             "corrected_answer": result["corrected_answer"],
             "confidence":       result["confidence"],
-            "bonus":            3,
+            **_pts_response(pts),
         })
 
     # AI không xác nhận được → lưu cho admin xem xét thủ công
@@ -397,11 +411,11 @@ async def api_correct(req: CorrectionRequest, request: Request):
     update_tip_ai_result(tip_id, result.get("confidence", 0.0), result.get("reason", "Chưa đủ cơ sở xác nhận tự động"), "review")
     await notify.push("pending_review", title)
 
-    add_bonus_quota(device_id, 2)
+    pts = add_points(device_id, "correction_pending", 3)
     return JSONResponse({
         "verified": False,
         "reason":   result.get("reason", ""),
-        "bonus":    2,
+        **_pts_response(pts),
     })
 
 
@@ -438,7 +452,8 @@ class CommunityTipRequest(BaseModel):
     category: str = ""
     region: str = ""
 
-TIP_BONUS = 5  # lượt hỏi thưởng khi gửi kinh nghiệm cộng đồng
+TIP_SUBMIT_PTS = 5   # điểm khi gửi tip (pending/approved)
+TIP_APPROVE_PTS = 20  # điểm thêm khi admin approve (tip pending)
 
 _DATA_DIR = __import__("pathlib").Path(__file__).parent.parent.parent / "data"
 
@@ -461,8 +476,8 @@ def _save_tip_as_doc(tip_id: int, title: str, content: str) -> None:
 
 @router.post("/api/community-tips")
 async def api_submit_tip(req: CommunityTipRequest, request: Request):
-    if len(req.title.strip()) < 5 or len(req.content.strip()) < 20:
-        raise HTTPException(status_code=422, detail="Tiêu đề hoặc nội dung quá ngắn")
+    if len(req.title.strip()) < 5 or len(req.content.strip()) < 100:
+        raise HTTPException(status_code=422, detail="Tiêu đề quá ngắn hoặc nội dung phải ≥100 ký tự")
     device_id = _get_device_id(request)
     title   = req.title.strip()
     content = req.content.strip()
@@ -499,15 +514,22 @@ async def api_submit_tip(req: CommunityTipRequest, request: Request):
             "reason": reason or "Thông tin chưa phù hợp hoặc không liên quan đến cà chua.",
         })
 
-    # approve hoặc review → thưởng quota
-    add_bonus_quota(device_id, TIP_BONUS)
+    # Thưởng điểm khi gửi tip (tối đa 3 lần/ngày)
+    pts = add_points(device_id, "tip_submitted", TIP_SUBMIT_PTS, daily_limit=3)
 
     if action == "approve":
-        # AI tự tin cao → đưa vào KB ngay
+        # AI tự tin cao → đưa vào KB ngay, thưởng thêm điểm ngay luôn
         approve_tip(tip_id)
         _save_tip_as_doc(tip_id, title, content)
-        return JSONResponse({"ok": True, "id": tip_id, "bonus": TIP_BONUS, "auto_approved": True})
+        pts2 = add_points(device_id, "tip_approved", TIP_APPROVE_PTS)
+        # Cộng gộp điểm hai lần
+        combined = {
+            "points_added":    pts["points_added"] + pts2["points_added"],
+            "questions_added": pts["questions_added"] + pts2["questions_added"],
+            "current_points":  pts2["current_points"],
+        }
+        return JSONResponse({"ok": True, "id": tip_id, "auto_approved": True, **_pts_response(combined)})
 
-    # review → chờ admin
+    # review → chờ admin, chỉ thưởng điểm gửi
     await notify.push("pending_review", title)
-    return JSONResponse({"ok": True, "id": tip_id, "bonus": TIP_BONUS, "pending_review": True})
+    return JSONResponse({"ok": True, "id": tip_id, "pending_review": True, **_pts_response(pts)})

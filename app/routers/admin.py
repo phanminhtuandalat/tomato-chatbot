@@ -16,6 +16,7 @@ from app.config import ADMIN_USER, ADMIN_PASSWORD
 from app.database import (
     get_feedback_stats, get_analytics, create_premium_code, list_premium_codes,
     get_flywheel_data, get_review_tips, approve_tip, reject_tip, get_image_submissions,
+    get_tip_device_id, add_points,
 )
 from app.services import rag as rag_module
 from app.services.embeddings import index_document, EMBED_ENABLED
@@ -255,6 +256,8 @@ async def community_tips(_: None = Depends(require_admin)):
 
 @router.post("/admin/community-approve/{tip_id}")
 async def community_approve(tip_id: int, _: None = Depends(require_admin)):
+    # Lấy device_id trước khi approve (để thưởng điểm đúng người)
+    submitter_id = get_tip_device_id(tip_id)
     tip = approve_tip(tip_id)
     if not tip:
         return JSONResponse({"ok": False, "error": "Không tìm thấy góp ý"})
@@ -263,6 +266,9 @@ async def community_approve(tip_id: int, _: None = Depends(require_admin)):
     rag_module.rag.reload()
     if EMBED_ENABLED:
         await index_document(out.stem, tip["title"], out.read_text(encoding="utf-8"))
+    # Thưởng +20 điểm cho người gửi tip (tip từ review → admin approve)
+    if submitter_id and tip.get("status") != "approved":
+        add_points(submitter_id, "tip_approved", 20)
     return JSONResponse({"ok": True, "filename": out.name})
 
 

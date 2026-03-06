@@ -120,6 +120,24 @@ def init_db() -> None:
                 created_at TEXT    NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_points (
+                device_id        TEXT    PRIMARY KEY,
+                total_earned     INTEGER NOT NULL DEFAULT 0,
+                current_points   INTEGER NOT NULL DEFAULT 0,
+                questions_earned INTEGER NOT NULL DEFAULT 0,
+                updated_at       TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS points_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id  TEXT    NOT NULL,
+                action     TEXT    NOT NULL,
+                points     INTEGER NOT NULL,
+                created_at TEXT    NOT NULL
+            )
+        """)
 
 
 @contextmanager
@@ -462,6 +480,105 @@ def get_image_submissions(limit: int = 50) -> list[dict]:
             (limit,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Points system — tích điểm đổi lượt hỏi
+# ---------------------------------------------------------------------------
+
+POINTS_PER_QUESTION = 20  # 20 điểm = 1 lượt hỏi
+
+# Giới hạn hành động/ngày — in-memory (reset khi restart server)
+_pts_daily: dict[str, int] = {}   # key = "device_id:action"
+_pts_daily_date: str = ""
+
+
+def _pts_daily_ok(device_id: str, action: str, max_per_day: int) -> bool:
+    """Kiểm tra và ghi nhận 1 lần thực hiện action. True = còn trong giới hạn."""
+    from datetime import datetime as _dt2
+    global _pts_daily_date
+    today = _dt2.now().strftime("%Y-%m-%d")
+    if _pts_daily_date != today:
+        _pts_daily.clear()
+        _pts_daily_date = today
+    key = f"{device_id}:{action}"
+    count = _pts_daily.get(key, 0)
+    if count >= max_per_day:
+        return False
+    _pts_daily[key] = count + 1
+    return True
+
+
+def add_points(device_id: str, action: str, points: int, daily_limit: int | None = None) -> dict:
+    """
+    Cộng điểm cho user. Mỗi 20 điểm tự động đổi thành 1 lượt hỏi.
+    daily_limit: số lần action này được thưởng điểm trong ngày (None = không giới hạn).
+    Trả về: {points_added, questions_added, current_points, total_earned}
+    """
+    # Kiểm tra giới hạn ngày
+    if daily_limit is not None and not _pts_daily_ok(device_id, action, daily_limit):
+        return {"points_added": 0, "questions_added": 0, "current_points": 0, "total_earned": 0}
+
+    from datetime import datetime as _dt2
+    now = _dt2.now().isoformat(timespec="seconds")
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO user_points (device_id, total_earned, current_points, questions_earned, updated_at)
+            VALUES (?, ?, ?, 0, ?)
+            ON CONFLICT(device_id) DO UPDATE SET
+                total_earned   = total_earned   + excluded.total_earned,
+                current_points = current_points + excluded.current_points,
+                updated_at     = excluded.updated_at
+        """, (device_id, points, points, now))
+
+        conn.execute(
+            "INSERT INTO points_log (device_id, action, points, created_at) VALUES (?,?,?,?)",
+            (device_id, action, points, now),
+        )
+
+        row = conn.execute(
+            "SELECT total_earned, current_points, questions_earned FROM user_points WHERE device_id=?",
+            (device_id,),
+        ).fetchone()
+        total_earned   = row["total_earned"]
+        current_points = row["current_points"]
+
+        # Tự động đổi điểm thành lượt hỏi
+        questions_to_add = current_points // POINTS_PER_QUESTION
+        if questions_to_add > 0:
+            remaining = current_points % POINTS_PER_QUESTION
+            conn.execute(
+                "UPDATE user_points SET current_points=?, questions_earned=questions_earned+? WHERE device_id=?",
+                (remaining, questions_to_add, device_id),
+            )
+            conn.execute("""
+                INSERT INTO premium_quota (ip, requests, images) VALUES (?, ?, 0)
+                ON CONFLICT(ip) DO UPDATE SET requests = requests + excluded.requests
+            """, (device_id, questions_to_add))
+            current_points = remaining
+
+    return {
+        "points_added":    points,
+        "questions_added": questions_to_add,
+        "current_points":  current_points,
+        "total_earned":    total_earned,
+    }
+
+
+def get_points(device_id: str) -> dict:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT total_earned, current_points, questions_earned FROM user_points WHERE device_id=?",
+            (device_id,),
+        ).fetchone()
+    return dict(row) if row else {"total_earned": 0, "current_points": 0, "questions_earned": 0}
+
+
+def get_tip_device_id(tip_id: int) -> str | None:
+    """Lấy device_id của người gửi tip (để thưởng điểm khi admin approve)."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT device_id FROM community_tips WHERE id=?", (tip_id,)).fetchone()
+    return row["device_id"] if row else None
 
 
 def save_feedback(ts: str, rating: int, question: str, answer: str) -> None:
