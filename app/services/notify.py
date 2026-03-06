@@ -19,7 +19,7 @@ from app.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 log = logging.getLogger(__name__)
 
-_BATCH_SIZE   = 5       # flush ngay khi đủ N sự kiện
+_BATCH_SIZE   = 1       # flush ngay mỗi sự kiện (tắt batch để test)
 _BATCH_WINDOW = 3600    # hoặc khi đã chờ >= 1 giờ (giây)
 
 _queue:      list[dict] = []
