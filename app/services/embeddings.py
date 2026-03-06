@@ -18,19 +18,32 @@ from datetime import datetime
 
 import numpy as np
 
-from app.config import OPENAI_API_KEY
+from app.config import OPENAI_API_KEY, OPENROUTER_API_KEY
 from app.database import get_conn
 
 log = logging.getLogger(__name__)
 
-EMBED_MODEL   = "text-embedding-3-small"
+# Ưu tiên OpenAI trực tiếp; fallback về OpenRouter (cùng API format)
+if OPENAI_API_KEY:
+    _API_KEY      = OPENAI_API_KEY
+    _BASE_URL     = None                          # OpenAI mặc định
+    EMBED_MODEL   = "text-embedding-3-small"
+elif OPENROUTER_API_KEY:
+    _API_KEY      = OPENROUTER_API_KEY
+    _BASE_URL     = "https://openrouter.ai/api/v1"
+    EMBED_MODEL   = "openai/text-embedding-3-small"
+else:
+    _API_KEY      = None
+    _BASE_URL     = None
+    EMBED_MODEL   = ""
+
 EMBED_DIMS    = 1536
 CHUNK_SIZE    = 900    # ký tự (~225 token) — đủ nhỏ để search chính xác
 CHUNK_OVERLAP = 150    # ký tự overlap giữa các chunk liền nhau
 MIN_CHUNK     = 60     # bỏ qua chunk quá ngắn
 SCORE_CUTOFF  = 0.30   # cosine similarity tối thiểu
 
-EMBED_ENABLED = bool(OPENAI_API_KEY)
+EMBED_ENABLED = bool(_API_KEY)
 
 _client = None
 
@@ -39,7 +52,10 @@ def _get_client():
     global _client
     if _client is None:
         from openai import AsyncOpenAI
-        _client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        kwargs = {"api_key": _API_KEY}
+        if _BASE_URL:
+            kwargs["base_url"] = _BASE_URL
+        _client = AsyncOpenAI(**kwargs)
     return _client
 
 
