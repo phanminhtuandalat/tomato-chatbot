@@ -42,6 +42,22 @@ async def startup():
         logging.info("Copied seed knowledge base to data/")
     init_db()
 
+    # Auto-index các file .md chưa có embeddings
+    from app.services.embeddings import EMBED_ENABLED, index_document, get_indexed_sources
+    if EMBED_ENABLED:
+        indexed = get_indexed_sources()
+        md_files = list(data_dir.glob("*.md"))
+        to_index = [f for f in md_files if f.stem not in indexed]
+        if to_index:
+            logging.info("Auto-indexing %d file(s) chưa có embeddings...", len(to_index))
+            for f in to_index:
+                try:
+                    content = f.read_text(encoding="utf-8")
+                    await index_document(f.stem, f.stem.replace("_", " ").title(), content)
+                except Exception as e:
+                    logging.error("Index lỗi %s: %s", f.name, e)
+            logging.info("Auto-index hoàn tất.")
+
 
 @app.get("/")
 async def index(request: Request):

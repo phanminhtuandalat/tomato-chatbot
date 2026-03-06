@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.services import llm, rag as rag_module
 from app.services.llm import LLMError
+from app.services.embeddings import vector_search, EMBED_ENABLED
 from app.database import save_feedback, save_question, get_premium_quota, consume_premium, redeem_code
 
 router = APIRouter()
@@ -112,7 +113,16 @@ async def api_chat(req: ChatRequest, request: Request):
             has_image=bool(image),
         )
 
-    context = rag_module.rag.search(question) if question else ""
+    if question:
+        if EMBED_ENABLED:
+            results = await vector_search(question)
+            context = "\n\n---\n\n".join(
+                f"[{r['source']}] {r['title']}\n{r['content']}" for r in results
+            ) if results else rag_module.rag.search(question)  # fallback BM25
+        else:
+            context = rag_module.rag.search(question)
+    else:
+        context = ""
     history = [{"role": m.role, "content": m.content} for m in req.history]
 
     _ERROR_MESSAGES = {

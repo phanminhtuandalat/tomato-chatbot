@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.config import ADMIN_USER, ADMIN_PASSWORD
 from app.database import get_feedback_stats, get_analytics, create_premium_code, list_premium_codes
 from app.services import rag as rag_module
+from app.services.embeddings import index_document, EMBED_ENABLED
 
 router  = APIRouter()
 security = HTTPBasic()
@@ -93,6 +94,8 @@ async def upload_file(file: UploadFile = File(...), _: None = Depends(require_ad
 
         out = _save_doc(title, content, file.filename)
         rag_module.rag.reload()
+        if EMBED_ENABLED:
+            await index_document(out.stem, title, out.read_text(encoding="utf-8"))
         return JSONResponse({"ok": True, "filename": out.name, "chars": len(content)})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
@@ -122,6 +125,8 @@ async def upload_url(req: UrlRequest, _: None = Depends(require_admin)):
             return JSONResponse({"ok": False, "error": "Nội dung trang quá ngắn"})
         out = _save_doc(title, content, req.url)
         rag_module.rag.reload()
+        if EMBED_ENABLED:
+            await index_document(out.stem, title, out.read_text(encoding="utf-8"))
         return JSONResponse({"ok": True, "filename": out.name, "chars": len(content)})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
@@ -146,6 +151,8 @@ async def upload_image(file: UploadFile = File(...), title: str = "", _: None = 
         doc_title = title.strip() or Path(file.filename).stem.replace("_", " ").title()
         out = _save_doc(doc_title, _clean(extracted), file.filename)
         rag_module.rag.reload()
+        if EMBED_ENABLED:
+            await index_document(out.stem, doc_title, out.read_text(encoding="utf-8"))
         return JSONResponse({"ok": True, "filename": out.name, "chars": len(extracted), "preview": extracted[:200]})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
@@ -159,9 +166,31 @@ async def delete_doc(req: DeleteRequest, _: None = Depends(require_admin)):
     target = DATA_DIR / Path(req.filename).name
     if not target.exists():
         return JSONResponse({"ok": False, "error": "Không tìm thấy file"})
+    source = target.stem
     target.unlink()
     rag_module.rag.reload()
+    if EMBED_ENABLED:
+        from app.database import get_conn
+        with get_conn() as conn:
+            conn.execute("DELETE FROM chunks WHERE source=?", (source,))
     return JSONResponse({"ok": True})
+
+
+@router.post("/admin/reindex")
+async def reindex_all(_: None = Depends(require_admin)):
+    """Tạo lại toàn bộ embeddings từ knowledge base hiện tại."""
+    if not EMBED_ENABLED:
+        return JSONResponse({"ok": False, "error": "OPENAI_API_KEY chưa được cấu hình"})
+    total = 0
+    errors = []
+    for md_file in sorted(DATA_DIR.glob("*.md")):
+        try:
+            content = md_file.read_text(encoding="utf-8")
+            n = await index_document(md_file.stem, md_file.stem.replace("_", " ").title(), content)
+            total += n
+        except Exception as e:
+            errors.append(f"{md_file.name}: {e}")
+    return JSONResponse({"ok": True, "total_chunks": total, "errors": errors})
 
 
 @router.get("/admin/docs")

@@ -22,6 +22,7 @@ def _get(key: str, default: str = "") -> str:
 
 # LLM
 OPENROUTER_API_KEY  = _require("OPENROUTER_API_KEY")
+OPENAI_API_KEY      = _get("OPENAI_API_KEY")       # dùng cho embeddings (tuỳ chọn)
 OPENROUTER_MODEL    = _get("OPENROUTER_MODEL",      "anthropic/claude-sonnet-4-5")
 OPENROUTER_MODEL_FAST = _get("OPENROUTER_MODEL_FAST", "anthropic/claude-haiku-4-5")
 

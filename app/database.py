@@ -65,6 +65,17 @@ def init_db() -> None:
                 auth     TEXT    NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chunks (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                source     TEXT    NOT NULL,
+                title      TEXT    NOT NULL DEFAULT '',
+                content    TEXT    NOT NULL,
+                embedding  BLOB    NOT NULL,
+                created_at TEXT    NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source)")
 
 
 @contextmanager
