@@ -273,6 +273,19 @@ async def community_reject(tip_id: int, req: RejectRequest, _: None = Depends(re
 
 
 # ---------------------------------------------------------------------------
+# Test Telegram
+# ---------------------------------------------------------------------------
+
+@router.post("/admin/test-notify")
+async def test_notify(_: None = Depends(require_admin)):
+    from app.services.notify import push, enabled
+    if not enabled():
+        return JSONResponse({"ok": False, "reason": "Chưa cấu hình TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID"})
+    await push("error", "TEST — Telegram notify hoạt động!", "Đây là tin nhắn test từ admin panel.")
+    return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # Image dataset
 # ---------------------------------------------------------------------------
 

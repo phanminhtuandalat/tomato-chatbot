@@ -447,6 +447,29 @@ async function loadImageDataset() {
     </div>`).join('');
 }
 
+async function testTelegram() {
+  const btn = document.getElementById('telegramTestBtn');
+  const result = document.getElementById('telegramResult');
+  btn.disabled = true; btn.textContent = 'Đang gửi...';
+  result.textContent = '';
+  try {
+    const res = await fetch('/admin/test-notify', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      result.style.color = '#2e7d32';
+      result.textContent = '✓ Đã gửi! Kiểm tra Telegram của bạn.';
+    } else {
+      result.style.color = '#ef5350';
+      result.textContent = '✗ ' + (data.reason || 'Lỗi không xác định');
+    }
+  } catch {
+    result.style.color = '#ef5350';
+    result.textContent = '✗ Lỗi kết nối';
+  } finally {
+    btn.disabled = false; btn.textContent = '📤 Gửi tin test';
+  }
+}
+
 async function loadFeedback() {
   const res = await fetch('/admin/feedback');
   const data = await res.json();
