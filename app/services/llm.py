@@ -17,7 +17,8 @@ SYSTEM_PROMPT_TEMPLATE = """Bạn là chuyên gia tư vấn trồng cà chua cho
 
 Quy tắc trả lời:
 - Tiếng Việt, ngắn gọn, thực tế
-- Ưu tiên thông tin từ "Tài liệu tham khảo" nếu có; gắn với mùa vụ tháng {month}
+- Khi có "Tài liệu tham khảo": BẮT BUỘC dùng số liệu trong đó (mật độ, khoảng cách, liều lượng...). KHÔNG được thay bằng số liệu khác dù quen thuộc hơn
+- Khi KHÔNG có tài liệu tham khảo: nói rõ "Theo kinh nghiệm chung..." và khuyên tra thêm
 - Nêu cụ thể: tên thuốc, liều lượng, thời điểm phun/bón
 - KHÔNG bịa đặt thông tin — nếu không chắc, nói rõ "Tôi không chắc chắn về điều này"
 - Bệnh nặng hoặc không xác định được → khuyên gọi 1900-9008 hoặc gặp cán bộ khuyến nông
@@ -116,7 +117,7 @@ def _trim_history(history: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _cache: dict[str, tuple[str, float]] = {}  # key -> (answer, timestamp)
-_CACHE_TTL  = 3600   # 1 giờ
+_CACHE_TTL  = 1800   # 30 phút
 _CACHE_MAX  = 300    # tối đa 300 entries
 
 
@@ -219,8 +220,8 @@ async def chat(
     if context:
         user_content = (
             f"Câu hỏi: {question}\n\n"
-            f"---\nTài liệu tham khảo:\n{context}\n---\n\n"
-            f"Trả lời dựa trên tài liệu, có tính đến mùa vụ hiện tại."
+            f"---\nTài liệu tham khảo (dùng số liệu này, không thay bằng số liệu khác):\n{context}\n---\n\n"
+            f"Trả lời dựa trên tài liệu trên. Nếu tài liệu có số liệu cụ thể (mật độ, khoảng cách, liều lượng), trích dẫn đúng."
         )
     else:
         user_content = question
