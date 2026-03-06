@@ -43,5 +43,9 @@ VAPID_PRIVATE_KEY = _get("VAPID_PRIVATE_KEY")
 VAPID_EMAIL       = _get("VAPID_EMAIL", "mailto:admin@tomato-chatbot.app")
 PUSH_ENABLED      = bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY)
 
+# Telegram notifications (tuỳ chọn)
+TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID   = _get("TELEGRAM_CHAT_ID")
+
 # Server
 PORT = int(_get("PORT", "8000"))

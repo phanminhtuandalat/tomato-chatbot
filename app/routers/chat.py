@@ -24,6 +24,7 @@ from app.database import (
 )
 from datetime import datetime as _dt
 from app.services.weather import get_weather, REGION_NAMES
+from app.services import notify
 
 router = APIRouter()
 
@@ -308,6 +309,7 @@ async def api_correct_chat(req: CorrectChatRequest, request: Request):
 
         add_bonus_quota(device_id, 3)
         result["bonus"] = 3
+        await notify.push("correction", title)
 
     return JSONResponse(result)
 
@@ -456,6 +458,7 @@ async def api_submit_tip(req: CommunityTipRequest, request: Request):
     if action == "reject":
         # AI chắc chắn sai — từ chối, không thưởng
         reject_tip(tip_id, reason)
+        await notify.push("auto_rejected", title, reason)
         return JSONResponse({
             "ok": False, "rejected": True,
             "reason": reason or "Thông tin chưa phù hợp hoặc không liên quan đến cà chua.",
@@ -471,4 +474,5 @@ async def api_submit_tip(req: CommunityTipRequest, request: Request):
         return JSONResponse({"ok": True, "id": tip_id, "bonus": TIP_BONUS, "auto_approved": True})
 
     # review → chờ admin
+    await notify.push("pending_review", title)
     return JSONResponse({"ok": True, "id": tip_id, "bonus": TIP_BONUS, "pending_review": True})
