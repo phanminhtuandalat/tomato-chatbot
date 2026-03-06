@@ -148,17 +148,64 @@ function showTyping() {
 function removeTyping() { document.getElementById('typing')?.remove(); }
 
 /* ── Feedback ── */
-function showBonusToast(points, questionsAdded) {
+/* ── Context-aware toast + confetti + progress bar ── */
+
+const _TOAST_CTX = {
+  feedback:            { icon: '🙏', sub: 'Phản hồi của bà con giúp bot ngày càng thông minh hơn!' },
+  correction_verified: { icon: '🎉', sub: 'Thông tin đã được xác nhận và bổ sung vào kho kiến thức!' },
+  correction_pending:  { icon: '📝', sub: 'Cảm ơn! Admin sẽ xem xét và cập nhật sớm.' },
+  tip:                 { icon: '🌱', sub: 'Cảm ơn kinh nghiệm quý báu của bà con!' },
+  tip_approved:        { icon: '✨', sub: 'Kinh nghiệm được xác nhận ngay và thêm vào kho kiến thức!' },
+};
+
+function showBonusToast(points, questionsAdded, action, currentPts, perQuestion) {
   if (!points && !questionsAdded) return;
+  const ctx = _TOAST_CTX[action] || { icon: '⭐', sub: 'Cảm ơn đóng góp của bà con' };
+  const mainText = questionsAdded > 0
+    ? `+${points} điểm → 🎁 thêm ${questionsAdded} lượt hỏi!`
+    : `+${points} điểm`;
+
   const toast = document.getElementById('bonusToast');
-  if (questionsAdded > 0) {
-    toast.textContent = `🎁 +${points} điểm → thêm ${questionsAdded} lượt hỏi! Cảm ơn bà con`;
-  } else {
-    toast.textContent = `⭐ +${points} điểm! Tích đủ 20 điểm = 1 lượt hỏi`;
-  }
+  toast.className = 'bonus-toast' + (questionsAdded > 0 ? ' unlock' : '');
+  toast.innerHTML = `<div class="toast-icon">${ctx.icon}</div><div class="toast-body"><strong>${mainText}</strong><span>${ctx.sub}</span></div>`;
   toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 4000);
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => toast.classList.remove('show'), 4800);
+
+  if (questionsAdded > 0) showConfetti();
+  if (currentPts != null) showPointsProgress(currentPts, perQuestion || 20);
   updateQuota();
+}
+
+function showConfetti() {
+  const emojis = ['🎉', '🍅', '⭐', '🌟', '✨', '🎊', '🥳'];
+  for (let i = 0; i < 15; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti-piece';
+    el.textContent = emojis[i % emojis.length];
+    el.style.left = `${4 + Math.random() * 92}%`;
+    el.style.fontSize = `${16 + Math.random() * 20}px`;
+    el.style.animationDelay = `${Math.random() * 0.7}s`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2800);
+  }
+}
+
+function showPointsProgress(current, perQuestion) {
+  let bar = document.getElementById('ptsProgressBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'ptsProgressBar';
+    bar.className = 'pts-progress';
+    bar.innerHTML = `<span class="pts-label" id="ptsLabel"></span><div class="pts-bar"><div class="pts-fill" id="ptsFill"></div></div>`;
+    document.body.appendChild(bar);
+  }
+  const pct = Math.min(100, Math.round((current / perQuestion) * 100));
+  document.getElementById('ptsLabel').textContent = `⭐ ${current} / ${perQuestion} điểm`;
+  document.getElementById('ptsFill').style.width = pct + '%';
+  bar.classList.add('show');
+  clearTimeout(bar._t);
+  bar._t = setTimeout(() => bar.classList.remove('show'), 3800);
 }
 
 async function _postFeedback(payload) {
@@ -169,7 +216,7 @@ async function _postFeedback(payload) {
   }).catch(() => null);
   if (res?.ok) {
     const data = await res.json();
-    if (data.points) showBonusToast(data.points, data.questions_added || 0);
+    if (data.points) showBonusToast(data.points, data.questions_added || 0, 'feedback', data.current_points, 20);
   }
 }
 
@@ -432,7 +479,10 @@ async function submitCorrectionForm(msgId) {
     } else {
       addCorrectionBotMessage('✓ Đã ghi nhận. Chúng tôi sẽ xem xét và cập nhật sớm. Cảm ơn bà con!');
     }
-    if (data.points) showBonusToast(data.points, data.questions_added || 0);
+    if (data.points) {
+      const action = data.verified ? 'correction_verified' : 'correction_pending';
+      showBonusToast(data.points, data.questions_added || 0, action, data.current_points, 20);
+    }
     endCorrectionMode();
   } catch (err) {
     clearTimeout(progressTimer); clearTimeout(fetchTimeout);
@@ -688,7 +738,7 @@ async function submitTip() {
   const category = document.getElementById('tipCategory').value;
   const msgEl    = document.getElementById('tipMsg');
   if (title.length < 5)    { msgEl.style.color = '#ef5350'; msgEl.textContent = 'Tiêu đề quá ngắn'; return; }
-  if (content.length < 20) { msgEl.style.color = '#ef5350'; msgEl.textContent = 'Nội dung quá ngắn (ít nhất 20 ký tự)'; return; }
+  if (content.length < 100) { msgEl.style.color = '#ef5350'; msgEl.textContent = 'Nội dung quá ngắn (ít nhất 100 ký tự)'; return; }
   msgEl.style.color = '#888'; msgEl.textContent = 'Đang gửi...';
   try {
     const res = await fetch('/api/community-tips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, content, category, region: userRegion }) });
@@ -701,7 +751,10 @@ async function submitTip() {
         msgEl.style.color = '#2e7d32';
         msgEl.textContent = '✓ Cảm ơn bà con! Admin sẽ xem xét và bổ sung vào kho kiến thức.';
       }
-      if (data.points) showBonusToast(data.points, data.questions_added || 0);
+      if (data.points) {
+        const action = data.auto_approved ? 'tip_approved' : 'tip';
+        showBonusToast(data.points, data.questions_added || 0, action, data.current_points, 20);
+      }
       setTimeout(closeTipModal, 2800);
     } else {
       msgEl.style.color = '#ef5350';
