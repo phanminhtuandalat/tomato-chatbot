@@ -137,7 +137,7 @@ async def api_chat(req: ChatRequest, request: Request):
         answer = _ERROR_MESSAGES.get(str(e), "Lỗi không xác định. Vui lòng thử lại.")
     except Exception as e:
         log.exception("llm.chat unexpected error: %s", e)
-        answer = "Lỗi hệ thống không xác định. Vui lòng thử lại hoặc gọi 1900-9008."
+        answer = "Lỗi hệ thống không xác định. Vui lòng thử lại sau ít phút."
 
     return JSONResponse({"answer": answer})
 
