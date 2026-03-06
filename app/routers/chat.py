@@ -262,6 +262,18 @@ class CorrectionRequest(BaseModel):
     submission_id: int | None = None
 
 
+class CorrectionFormRequest(BaseModel):
+    question:     str = ""
+    wrong_answer: str = ""
+
+
+@router.post("/api/correction-form")
+async def api_correction_form(req: CorrectionFormRequest, request: Request):
+    from app.services.llm import generate_correction_form
+    result = await generate_correction_form(req.question, req.wrong_answer)
+    return JSONResponse(result)
+
+
 class CorrectChatRequest(BaseModel):
     question:     str = ""
     wrong_answer: str = ""

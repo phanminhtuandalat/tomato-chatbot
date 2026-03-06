@@ -491,3 +491,45 @@ body {
   white-space: nowrap;
 }
 .correction-banner button:hover { background: #c8e6c9; }
+
+/* ── Correction Form (trắc nghiệm) ── */
+.cf-bubble { padding: 4px 2px; }
+.cf-intro { font-size: 13px; color: #2e7d32; font-weight: 600; margin-bottom: 12px; }
+.cf-question { margin-bottom: 14px; }
+.cf-label { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 7px; }
+.cf-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.cf-opt {
+  font-size: 12px; padding: 5px 13px; border-radius: 16px;
+  border: 1.5px solid #a5d6a7; background: white; color: #333;
+  cursor: pointer; transition: all 0.15s;
+}
+.cf-opt:hover:not(.selected) { background: #e8f5e9; }
+.cf-opt.selected { background: #2e7d32; color: white; border-color: #2e7d32; }
+.cf-other {
+  display: none; margin-top: 7px; width: 100%; box-sizing: border-box;
+  border: 1.5px solid #a5d6a7; border-radius: 8px;
+  padding: 7px 10px; font-size: 13px; font-family: inherit;
+  outline: none; background: #f9fbe7;
+}
+.cf-input {
+  width: 100%; box-sizing: border-box;
+  border: 1.5px solid #a5d6a7; border-radius: 8px;
+  padding: 7px 10px; font-size: 13px; font-family: inherit;
+  outline: none; background: #f9fbe7;
+}
+.cf-input:focus, .cf-other:focus { border-color: #2e7d32; }
+.cf-yesno { display: flex; gap: 8px; }
+.cf-yn {
+  flex: 1; padding: 8px; border-radius: 10px; font-size: 13px;
+  border: 1.5px solid #a5d6a7; background: white;
+  cursor: pointer; transition: all 0.15s;
+}
+.cf-yn:hover:not(.selected) { background: #e8f5e9; }
+.cf-yn.selected { background: #2e7d32; color: white; border-color: #2e7d32; }
+.cf-submit-btn {
+  width: 100%; padding: 10px; border-radius: 10px; margin-top: 6px;
+  background: linear-gradient(135deg, #2e7d32, #43a047);
+  color: white; border: none; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: opacity 0.15s;
+}
+.cf-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }

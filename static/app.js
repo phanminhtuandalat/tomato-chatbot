@@ -209,34 +209,116 @@ async function startCorrection(msgId, btnEl) {
 
   correctionState = {
     msgId,
-    question:     row.dataset.question    || '',
-    wrongAnswer:  row.dataset.answer      || '',
+    question:    row.dataset.question    || '',
+    wrongAnswer: row.dataset.answer      || '',
     submissionId: row.dataset.submissionId ? parseInt(row.dataset.submissionId) : null,
-    turns: [],
   };
   showCorrectionBanner();
-
-  const firstMsg = '🔧 Bà con thấy câu trả lời sai ở đâu? Hãy mô tả cụ thể (ví dụ: "mật độ trồng phải là 40,000 cây/ha") — tôi sẽ kiểm tra và cập nhật ngay!';
-  correctionState.turns.push({ role: 'assistant', content: firstMsg });
-  addCorrectionBotMessage(firstMsg);
-  inputEl.focus();
-}
-
-async function handleCorrectionTurn(text) {
-  addUserMessage(text);
   showTyping();
 
-  const turnsSnapshot = [...correctionState.turns];
+  try {
+    const res = await fetch('/api/correction-form', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: correctionState.question, wrong_answer: correctionState.wrongAnswer }),
+    });
+    removeTyping();
+    if (!res.ok) throw new Error('server');
+    const formData = await res.json();
+    renderCorrectionForm(formData, msgId);
+  } catch {
+    removeTyping();
+    endCorrectionMode();
+    addCorrectionBotMessage('⚠️ Không tải được form. Vui lòng thử lại.');
+  }
+}
+
+function renderCorrectionForm(formData, msgId) {
+  const div = document.createElement('div');
+  div.className = 'msg-bot';
+  div.id = `cf-msg-${msgId}`;
+
+  let html = `<div class="bot-avatar">🍅</div><div class="bubble cf-bubble">`;
+  html += `<div class="cf-intro">${esc(formData.intro || 'Bà con cho biết thông tin đúng nhé:')}</div>`;
+
+  (formData.questions || []).forEach(q => {
+    html += `<div class="cf-question" data-qid="${q.id}">`;
+    html += `<div class="cf-label">${esc(q.label)}</div>`;
+    if (q.type === 'choice') {
+      html += `<div class="cf-options">`;
+      (q.options || []).forEach(opt => {
+        html += `<button class="cf-opt" onclick="selectCfOption(this,'${q.id}')">${esc(opt)}</button>`;
+      });
+      html += `</div><input class="cf-other" id="cf-other-${q.id}" placeholder="Nhập giá trị..." />`;
+    } else if (q.type === 'yesno') {
+      html += `<div class="cf-yesno">
+        <button class="cf-yn" onclick="selectYesNo(this,'${q.id}')">✅ Có</button>
+        <button class="cf-yn" onclick="selectYesNo(this,'${q.id}')">❌ Không</button>
+      </div>`;
+    } else {
+      const t = q.type === 'number' ? 'number' : 'text';
+      html += `<input type="${t}" class="cf-input" id="cf-${q.id}" placeholder="${q.placeholder || ''}" />`;
+    }
+    html += `</div>`;
+  });
+
+  html += `<button class="cf-submit-btn" onclick="submitCorrectionForm('${msgId}')">📤 Gửi thông tin đúng</button>`;
+  html += `</div></div>`;
+  div.innerHTML = html;
+  messagesEl.appendChild(div);
+  scrollBottom();
+}
+
+function selectCfOption(btn, qid) {
+  btn.closest('.cf-options').querySelectorAll('.cf-opt').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  const other = document.getElementById(`cf-other-${qid}`);
+  if (other) other.style.display = btn.textContent.trim() === 'Khác' ? 'block' : 'none';
+}
+
+function selectYesNo(btn, qid) {
+  btn.closest('.cf-yesno').querySelectorAll('.cf-yn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+}
+
+async function submitCorrectionForm(msgId) {
+  if (!correctionState) return;
+  const formDiv = document.getElementById(`cf-msg-${msgId}`);
+  if (!formDiv) return;
+
+  const answers = [];
+  formDiv.querySelectorAll('.cf-question').forEach(qDiv => {
+    const label = qDiv.querySelector('.cf-label')?.textContent || '';
+    const qid   = qDiv.dataset.qid;
+
+    const selOpt = qDiv.querySelector('.cf-opt.selected');
+    if (selOpt) {
+      let val = selOpt.textContent.trim();
+      if (val === 'Khác') val = document.getElementById(`cf-other-${qid}`)?.value.trim() || '';
+      if (val) answers.push(`${label}: ${val}`);
+      return;
+    }
+    const selYn = qDiv.querySelector('.cf-yn.selected');
+    if (selYn) { answers.push(`${label}: ${selYn.textContent.replace(/[✅❌]/g,'').trim()}`); return; }
+    const inp = qDiv.querySelector('.cf-input');
+    if (inp?.value.trim()) answers.push(`${label}: ${inp.value.trim()}`);
+  });
+
+  if (!answers.length) { addCorrectionBotMessage('⚠️ Bà con chưa điền thông tin nào.'); return; }
+
+  formDiv.querySelectorAll('button, input').forEach(el => el.disabled = true);
+  const submitBtn = formDiv.querySelector('.cf-submit-btn');
+  if (submitBtn) submitBtn.textContent = 'Đang kiểm tra...';
+  showTyping();
 
   try {
-    const res = await fetch('/api/correct-chat', {
+    const res = await fetch('/api/correct', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        question:     correctionState.question,
-        wrong_answer: correctionState.wrongAnswer,
-        user_message: text,
-        turns:        turnsSnapshot,
+        question:      correctionState.question,
+        wrong_answer:  correctionState.wrongAnswer,
+        correction:    answers.join('\n'),
         submission_id: correctionState.submissionId,
       }),
     });
@@ -244,36 +326,26 @@ async function handleCorrectionTurn(text) {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       addCorrectionBotMessage('⚠️ ' + (err.detail || `Lỗi server (${res.status}). Admin đã được thông báo.`));
-      endCorrectionMode();
-      return;
+      endCorrectionMode(); return;
     }
     const data = await res.json();
-
-    correctionState.turns.push({ role: 'user',      content: text });
-    correctionState.turns.push({ role: 'assistant', content: data.reply });
-    addCorrectionBotMessage(data.reply);
-
-    if (data.action === 'save') {
-      if (data.corrected_answer) {
-        const wrap = document.createElement('div');
-        wrap.className = 'msg-bot msg-corrected';
-        wrap.innerHTML = `
-          <div class="bot-avatar">🍅</div>
-          <div class="bubble">
-            <span class="corrected-badge">✏️ Câu trả lời đã được cập nhật</span><br>
-            ${esc(data.corrected_answer)}
-          </div>`;
-        messagesEl.appendChild(wrap);
-        scrollBottom();
-      }
-      if (data.bonus) showBonusToast(data.bonus);
-      endCorrectionMode();
-    } else if (data.action === 'cancel') {
-      endCorrectionMode();
+    if (data.verified && data.corrected_answer) {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg-bot msg-corrected';
+      wrap.innerHTML = `<div class="bot-avatar">🍅</div><div class="bubble">
+        <span class="corrected-badge">✏️ Câu trả lời đã được cập nhật</span><br>${esc(data.corrected_answer)}</div>`;
+      messagesEl.appendChild(wrap);
+      scrollBottom();
+    } else {
+      addCorrectionBotMessage('✓ Đã ghi nhận. Chúng tôi sẽ xem xét thêm. Cảm ơn bà con!');
     }
-  } catch (err) {
+    if (data.bonus) showBonusToast(data.bonus);
+    endCorrectionMode();
+  } catch {
     removeTyping();
-    addCorrectionBotMessage('⚠️ Mất kết nối đến server. Vui lòng kiểm tra mạng và thử lại.');
+    formDiv.querySelectorAll('button, input').forEach(el => el.disabled = false);
+    if (submitBtn) submitBtn.textContent = '📤 Gửi thông tin đúng';
+    addCorrectionBotMessage('⚠️ Mất kết nối. Vui lòng thử lại.');
   }
 }
 
@@ -535,16 +607,6 @@ async function sendMessage() {
   const image = pendingImage;
   if (!text && !image) return;
   if (sendBtn.disabled) return;
-
-  // Correction mode: intercept and handle as correction turn
-  if (correctionState && text && !image) {
-    inputEl.value = ''; inputEl.style.height = 'auto';
-    sendBtn.disabled = true;
-    await handleCorrectionTurn(text);
-    sendBtn.disabled = false;
-    inputEl.focus();
-    return;
-  }
 
   inputEl.value = ''; inputEl.style.height = 'auto';
   removeImage(); sendBtn.disabled = true;

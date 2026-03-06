@@ -345,6 +345,51 @@ Quy tắc action:
     return {"valid": True, "confidence": 0.5, "reason": "Không thể kiểm chứng tự động", "action": "review"}
 
 
+async def generate_correction_form(question: str, wrong_answer: str) -> dict:
+    """
+    Phân tích câu trả lời sai, tạo bộ câu hỏi trắc nghiệm để thu thập thông tin đúng.
+    Trả về: {intro, questions: [{id, type, label, options?, placeholder?, unit?}]}
+    """
+    prompt = f"""Câu hỏi người dùng: {question[:200]}
+Câu trả lời AI bị báo sai: {wrong_answer[:300]}
+
+Tạo 2-4 câu hỏi ngắn để thu thập thông tin đúng từ nông dân. Ưu tiên câu hỏi trắc nghiệm và số liệu cụ thể.
+
+Trả về JSON (chỉ JSON):
+{{"intro":"Bà con cho biết thông tin đúng nhé:","questions":[
+  {{"id":"q1","type":"choice","label":"Mật độ trồng đúng là?","options":["20,000 cây/ha","33,000 cây/ha","40,000 cây/ha","Khác"]}},
+  {{"id":"q2","type":"number","label":"Khoảng cách hàng (cm)","placeholder":"ví dụ: 70","unit":"cm"}},
+  {{"id":"q3","type":"yesno","label":"Áp dụng cho tất cả giống cà chua?"}},
+  {{"id":"q4","type":"text","label":"Ghi chú thêm (tuỳ chọn)","placeholder":"..."}}
+]}}
+
+Quy tắc:
+- type "choice": 3-5 options thực tế, luôn có "Khác" ở cuối
+- type "number": nhập số, có placeholder, unit tuỳ chọn
+- type "yesno": chỉ Có/Không
+- type "text": nhập tự do ngắn, tuỳ chọn
+- Tối đa 4 câu, đi thẳng vào vấn đề"""
+
+    raw = await _call([{"role": "user", "content": prompt}], model=OPENROUTER_MODEL_FAST, max_tokens=400)
+    import json, re
+    try:
+        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        if m:
+            data = json.loads(m.group())
+            if "questions" in data:
+                return data
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        log.warning("generate_correction_form parse error: %s", e)
+
+    return {
+        "intro": "Bà con cho biết thông tin đúng nhé:",
+        "questions": [
+            {"id": "q1", "type": "text", "label": "Thông tin đúng là gì?", "placeholder": "Mô tả cụ thể, ví dụ: mật độ 40,000 cây/ha..."},
+            {"id": "q2", "type": "yesno", "label": "Bà con chắc chắn về thông tin này không?"},
+        ]
+    }
+
+
 async def correct_chat_turn(
     question: str,
     wrong_answer: str,
