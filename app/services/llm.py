@@ -345,6 +345,69 @@ Quy tắc action:
     return {"valid": True, "confidence": 0.5, "reason": "Không thể kiểm chứng tự động", "action": "review"}
 
 
+async def correct_chat_turn(
+    question: str,
+    wrong_answer: str,
+    turns: list[dict],
+    user_message: str,
+) -> dict:
+    """
+    Multi-turn conversational correction.
+    Trả về: {action: "continue"|"save"|"cancel", reply: str, corrected_answer: str, confidence: float}
+    """
+    from app.services.rag import rag
+    kb_context = rag.search(f"{question} {user_message}", top_k=3)
+    context_section = f"\nKiến thức tham khảo:\n{kb_context[:1500]}" if kb_context else ""
+
+    history_text = ""
+    for t in turns[-8:]:
+        label = "Người dùng" if t["role"] == "user" else "Bot"
+        history_text += f"{label}: {t['content']}\n"
+
+    prompt = f"""Bạn đang hỗ trợ người dùng sửa câu trả lời sai của AI về cà chua. Hãy tương tác thân thiện, ngắn gọn.
+
+Câu hỏi gốc: {question[:300]}
+Câu trả lời cũ (bị báo sai): {wrong_answer[:400]}
+{context_section}
+
+Lịch sử hội thoại:
+{history_text}
+Người dùng (mới nhất): {user_message[:400]}
+
+Hướng dẫn:
+- Nếu người dùng chưa nói sai gì cụ thể: hỏi sai ở đâu
+- Nếu người dùng đã nói sai gì: kiểm tra với KB, tóm tắt lại thông tin đúng và hỏi xác nhận
+- Nếu người dùng xác nhận (đúng rồi, phải rồi, ok, đúng, ừ, vâng, cập nhật đi, chính xác): action=save, viết corrected_answer đầy đủ cho câu hỏi gốc
+- Nếu người dùng hủy (thôi, bỏ qua, không cần, hủy, cancel): action=cancel
+- Ngược lại: action=continue, hỏi thêm
+
+Trả về JSON (chỉ JSON):
+{{"action": "continue", "reply": "Câu hỏi/xác nhận ngắn...", "corrected_answer": "", "confidence": 0.0}}
+
+Với action=save: corrected_answer là câu trả lời hoàn chỉnh cho câu hỏi gốc, ngắn gọn, thực tế."""
+
+    try:
+        raw = await _call([{"role": "user", "content": prompt}],
+                          model=OPENROUTER_MODEL, max_tokens=500)
+        import json, re
+        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        if m:
+            data = json.loads(m.group())
+            action = data.get("action", "continue")
+            if action not in ("continue", "save", "cancel"):
+                action = "continue"
+            return {
+                "action":           action,
+                "reply":            str(data.get("reply", ""))[:600],
+                "corrected_answer": str(data.get("corrected_answer", ""))[:1000],
+                "confidence":       max(0.0, min(1.0, float(data.get("confidence", 0.7)))),
+            }
+    except Exception as e:
+        log.warning("correct_chat_turn error: %s", e)
+
+    return {"action": "continue", "reply": "Xin lỗi, có lỗi xảy ra. Bà con thử lại nhé.", "corrected_answer": "", "confidence": 0.0}
+
+
 async def extract_from_image(image_base64: str) -> str:
     """Trích xuất kiến thức từ ảnh để lưu vào knowledge base."""
     messages = [{"role": "user", "content": [

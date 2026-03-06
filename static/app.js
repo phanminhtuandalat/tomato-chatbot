@@ -11,6 +11,7 @@ let userLat = 0, userLon = 0;
 let firstMessageSent = false;
 let lastSubmissionId = null;
 let activeFeedbackShownToday = localStorage.getItem('feedback-date') === new Date().toISOString().slice(0,10);
+let correctionState = null;  // { msgId, question, wrongAnswer, submissionId, turns }
 
 /* ── Banner mùa vụ ── */
 const SEASON_INFO = {
@@ -127,22 +128,11 @@ function addBotMessage(text, question = '', submissionId = null, showActiveFeedb
     fbRow.id = msgId;
     fbRow.innerHTML = `
       <button class="fb-btn" onclick="sendFeedback('${msgId}', 1, this)">👍 Hữu ích</button>
-      <button class="fb-btn" onclick="showReasonBox('${msgId}', this)">👎 Chưa đúng</button>`;
+      <button class="fb-btn" onclick="startCorrection('${msgId}', this)">👎 Chưa đúng</button>`;
     fbRow.dataset.question = question;
     fbRow.dataset.answer = text;
     if (submissionId) fbRow.dataset.submissionId = submissionId;
-    const reasonBox = document.createElement('div');
-    reasonBox.id = `reason-${msgId}`;
-    reasonBox.className = 'reason-wrap';
-    reasonBox.innerHTML = `
-      <textarea class="reason-input" id="reasonText-${msgId}" placeholder="Câu trả lời sai ở đâu? (tuỳ chọn)..." rows="2"></textarea>
-      <textarea class="correction-input" id="correctionText-${msgId}" placeholder="💡 Bạn biết đáp án đúng không? Nhập vào đây — bot sẽ kiểm tra và sửa ngay!" rows="2"></textarea>
-      <div class="correction-actions">
-        <button class="correction-submit" id="corrBtn-${msgId}" onclick="submitWithCorrection('${msgId}')">⚡ Kiểm tra &amp; sửa ngay</button>
-        <button class="reason-skip" onclick="submitReasonOnly('${msgId}')">Chỉ góp ý (+2 câu hỏi)</button>
-      </div>`;
     messagesEl.appendChild(fbRow);
-    messagesEl.appendChild(reasonBox);
   }
   scrollBottom();
 }
@@ -188,75 +178,110 @@ async function sendFeedback(msgId, rating, btnEl) {
   });
 }
 
-function showReasonBox(msgId, btnEl) {
-  const row = document.getElementById(msgId);
-  row.querySelectorAll('.fb-btn').forEach(b => b.disabled = true);
-  btnEl.classList.add('voted-down');
-  const box = document.getElementById(`reason-${msgId}`);
-  if (box) { box.classList.add('show'); scrollBottom(); }
+/* ── Conversational Correction ── */
+function showCorrectionBanner() { document.getElementById('correctionBanner').style.display = 'flex'; }
+function hideCorrectionBanner() { document.getElementById('correctionBanner').style.display = 'none'; }
+
+function addCorrectionBotMessage(text) {
+  const div = document.createElement('div');
+  div.className = 'msg-bot';
+  div.innerHTML = `<div class="bot-avatar">🍅</div><div class="bubble">${esc(text)}</div>`;
+  messagesEl.appendChild(div);
+  scrollBottom();
 }
 
-async function submitWithCorrection(msgId) {
-  const row        = document.getElementById(msgId);
-  const reason     = document.getElementById(`reasonText-${msgId}`)?.value.trim() || '';
-  const correction = document.getElementById(`correctionText-${msgId}`)?.value.trim() || '';
-  const btn        = document.getElementById(`corrBtn-${msgId}`);
+function endCorrectionMode() { correctionState = null; hideCorrectionBanner(); }
 
-  if (!correction) { submitReasonOnly(msgId); return; }
+function cancelCorrection() {
+  if (correctionState) addCorrectionBotMessage('Đã hủy. Cảm ơn bà con đã phản hồi!');
+  endCorrectionMode();
+}
 
-  document.getElementById(`reason-${msgId}`).classList.remove('show');
-  if (btn) { btn.disabled = true; btn.textContent = 'Đang kiểm tra...'; }
+async function startCorrection(msgId, btnEl) {
+  const row = document.getElementById(msgId);
+  row.querySelectorAll('.fb-btn').forEach(b => b.disabled = true);
+  if (btnEl) btnEl.classList.add('voted-down');
+
+  _postFeedback({
+    question: row.dataset.question, answer: row.dataset.answer, rating: -1,
+    submission_id: row.dataset.submissionId ? parseInt(row.dataset.submissionId) : null,
+  });
+
+  correctionState = {
+    msgId,
+    question:     row.dataset.question    || '',
+    wrongAnswer:  row.dataset.answer      || '',
+    submissionId: row.dataset.submissionId ? parseInt(row.dataset.submissionId) : null,
+    turns: [],
+  };
+  showCorrectionBanner();
+
+  const firstMsg = '🔧 Bà con thấy câu trả lời sai ở đâu? Hãy mô tả cụ thể (ví dụ: "mật độ trồng phải là 40,000 cây/ha") — tôi sẽ kiểm tra và cập nhật ngay!';
+  correctionState.turns.push({ role: 'assistant', content: firstMsg });
+  addCorrectionBotMessage(firstMsg);
+  inputEl.focus();
+}
+
+async function handleCorrectionTurn(text) {
+  addUserMessage(text);
+  showTyping();
+
+  const turnsSnapshot = [...correctionState.turns];
 
   try {
-    const res = await fetch('/api/correct', {
+    const res = await fetch('/api/correct-chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        question:     row?.dataset?.question || '',
-        wrong_answer: row?.dataset?.answer   || '',
-        correction, reason,
-        submission_id: row?.dataset?.submissionId ? parseInt(row.dataset.submissionId) : null,
+        question:     correctionState.question,
+        wrong_answer: correctionState.wrongAnswer,
+        user_message: text,
+        turns:        turnsSnapshot,
+        submission_id: correctionState.submissionId,
       }),
     });
     const data = await res.json();
+    removeTyping();
 
-    if (data.verified && data.corrected_answer) {
-      const wrap = document.createElement('div');
-      wrap.className = 'msg-bot msg-corrected';
-      wrap.innerHTML = `
-        <div class="bot-avatar">🍅</div>
-        <div class="bubble">
-          <span class="corrected-badge">✏️ Đã cập nhật nhờ góp ý của bà con</span><br>
-          ${esc(data.corrected_answer).replace(/\n/g, '<br>')}
-        </div>`;
-      messagesEl.appendChild(wrap);
-      scrollBottom();
-    } else {
-      const note = document.createElement('div');
-      note.style.cssText = 'font-size:12px;color:#888;margin:4px 0 8px 40px;';
-      note.textContent = '✓ Đã ghi nhận. Chúng tôi sẽ kiểm tra thêm. Cảm ơn bà con!';
-      messagesEl.appendChild(note);
-      scrollBottom();
+    correctionState.turns.push({ role: 'user',      content: text });
+    correctionState.turns.push({ role: 'assistant', content: data.reply });
+    addCorrectionBotMessage(data.reply);
+
+    if (data.action === 'save') {
+      if (data.corrected_answer) {
+        const wrap = document.createElement('div');
+        wrap.className = 'msg-bot msg-corrected';
+        wrap.innerHTML = `
+          <div class="bot-avatar">🍅</div>
+          <div class="bubble">
+            <span class="corrected-badge">✏️ Câu trả lời đã được cập nhật</span><br>
+            ${esc(data.corrected_answer)}
+          </div>`;
+        messagesEl.appendChild(wrap);
+        scrollBottom();
+      }
+      if (data.bonus) showBonusToast(data.bonus);
+      endCorrectionMode();
+    } else if (data.action === 'cancel') {
+      endCorrectionMode();
     }
-    if (data.bonus) showBonusToast(data.bonus);
   } catch {
-    document.getElementById(`reason-${msgId}`)?.classList.remove('show');
+    removeTyping();
+    addCorrectionBotMessage('Lỗi kết nối. Vui lòng thử lại.');
   }
 }
 
-async function submitReasonOnly(msgId) {
-  const row    = document.getElementById(msgId);
+async function submitReason(msgId) {
+  const row = document.getElementById(msgId);
   const reason = document.getElementById(`reasonText-${msgId}`)?.value.trim() || '';
-  document.getElementById(`reason-${msgId}`).classList.remove('show');
+  document.getElementById(`reason-${msgId}`)?.classList.remove('show');
   await _postFeedback({
     question: row?.dataset?.question || '', answer: row?.dataset?.answer || '',
     rating: -1, reason,
     submission_id: row?.dataset?.submissionId ? parseInt(row.dataset.submissionId) : null,
   });
 }
-
-async function submitReason(msgId) { await submitReasonOnly(msgId); }
-async function submitReasonSkip(msgId) { await submitReasonOnly(msgId); }
+async function submitReasonSkip(msgId) { await submitReason(msgId); }
 
 async function sendActiveFeedback(msgId, rating) {
   const card = document.getElementById(msgId);
@@ -504,6 +529,16 @@ async function sendMessage() {
   const image = pendingImage;
   if (!text && !image) return;
   if (sendBtn.disabled) return;
+
+  // Correction mode: intercept and handle as correction turn
+  if (correctionState && text && !image) {
+    inputEl.value = ''; inputEl.style.height = 'auto';
+    sendBtn.disabled = true;
+    await handleCorrectionTurn(text);
+    sendBtn.disabled = false;
+    inputEl.focus();
+    return;
+  }
 
   inputEl.value = ''; inputEl.style.height = 'auto';
   removeImage(); sendBtn.disabled = true;

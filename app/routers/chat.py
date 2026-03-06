@@ -261,6 +261,57 @@ class CorrectionRequest(BaseModel):
     submission_id: int | None = None
 
 
+class CorrectChatRequest(BaseModel):
+    question:     str = ""
+    wrong_answer: str = ""
+    user_message: str = ""
+    turns:        list[HistoryMessage] = []
+    submission_id: int | None = None
+
+
+@router.post("/api/correct-chat")
+async def api_correct_chat(req: CorrectChatRequest, request: Request):
+    device_id = _get_device_id(request)
+
+    from app.services.llm import correct_chat_turn
+    turns = [{"role": m.role, "content": m.content} for m in req.turns]
+    result = await correct_chat_turn(
+        question=req.question,
+        wrong_answer=req.wrong_answer,
+        turns=turns,
+        user_message=req.user_message,
+    )
+
+    if result["action"] == "save" and result["corrected_answer"]:
+        title   = f"Sửa: {req.question[:80]}"
+        content = f"Câu hỏi: {req.question}\n\nThông tin đúng:\n{result['corrected_answer']}"
+        tip_id  = save_community_tip(
+            device_id=device_id, title=title, content=content,
+            category="correction", region="",
+        )
+        update_tip_ai_result(tip_id, result["confidence"], "Verified via conversational correction", "approve")
+        approve_tip(tip_id)
+        _save_tip_as_doc(tip_id, title, result["corrected_answer"])
+
+        save_feedback(
+            ts=_dt.now().isoformat(timespec="seconds"),
+            rating=-1,
+            question=f"{req.question}\n[Sửa qua hội thoại]",
+            answer=req.wrong_answer,
+        )
+        if req.submission_id:
+            try:
+                from app.database import update_image_feedback
+                update_image_feedback(req.submission_id, -1)
+            except Exception:
+                pass
+
+        add_bonus_quota(device_id, 3)
+        result["bonus"] = 3
+
+    return JSONResponse(result)
+
+
 @router.post("/api/correct")
 async def api_correct(req: CorrectionRequest, request: Request):
     device_id = _get_device_id(request)

@@ -476,3 +476,18 @@ body {
 .send-btn:active { transform: scale(0.95); }
 .send-btn:disabled { background: #a5d6a7; box-shadow: none; cursor: not-allowed; transform: none; }
 .send-btn svg { width: 20px; height: 20px; }
+
+/* ── Correction banner ── */
+.correction-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #e8f5e9; border-top: 2px solid #a5d6a7;
+  padding: 8px 14px; font-size: 13px; color: #2e7d32; font-weight: 500;
+  gap: 8px;
+}
+.correction-banner span { flex: 1; }
+.correction-banner button {
+  background: none; border: 1.5px solid #a5d6a7; border-radius: 14px;
+  color: #2e7d32; font-size: 12px; padding: 3px 12px; cursor: pointer;
+  white-space: nowrap;
+}
+.correction-banner button:hover { background: #c8e6c9; }
