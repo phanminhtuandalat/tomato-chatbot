@@ -378,7 +378,7 @@ Quy tắc:
 - type "text": câu hỏi mở, tuỳ chọn, đặt cuối
 - Tối đa 4 câu, chỉ hỏi những gì thực sự có trong câu trả lời sai"""
 
-    raw = await _call([{"role": "user", "content": prompt}], model=OPENROUTER_MODEL, max_tokens=600)
+    raw = await _call([{"role": "user", "content": prompt}], model=OPENROUTER_MODEL_FAST, max_tokens=600)
     import json, re
     try:
         m = re.search(r'\{.*\}', raw, re.DOTALL)

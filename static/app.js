@@ -311,10 +311,24 @@ async function submitCorrectionForm(msgId) {
   if (submitBtn) submitBtn.textContent = 'Đang kiểm tra...';
   showTyping();
 
+  // Sau 8 giây chưa xong → báo đang xử lý để user không lo
+  const progressTimer = setTimeout(() => {
+    removeTyping(); showTyping();
+    const hint = document.createElement('div');
+    hint.id = 'cf-progress-hint';
+    hint.style.cssText = 'font-size:12px;color:#888;margin:4px 0 4px 44px;';
+    hint.textContent = '⏳ Đang kiểm chứng thông tin, vui lòng chờ thêm...';
+    document.getElementById('typing')?.before(hint);
+  }, 8000);
+
+  const controller = new AbortController();
+  const fetchTimeout = setTimeout(() => controller.abort(), 35000);
+
   try {
     const res = await fetch('/api/correct', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         question:      correctionState.question,
         wrong_answer:  correctionState.wrongAnswer,
@@ -322,7 +336,10 @@ async function submitCorrectionForm(msgId) {
         submission_id: correctionState.submissionId,
       }),
     });
+    clearTimeout(progressTimer); clearTimeout(fetchTimeout);
+    document.getElementById('cf-progress-hint')?.remove();
     removeTyping();
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       addCorrectionBotMessage('⚠️ ' + (err.detail || `Lỗi server (${res.status}). Admin đã được thông báo.`));
@@ -337,15 +354,22 @@ async function submitCorrectionForm(msgId) {
       messagesEl.appendChild(wrap);
       scrollBottom();
     } else {
-      addCorrectionBotMessage('✓ Đã ghi nhận. Chúng tôi sẽ xem xét thêm. Cảm ơn bà con!');
+      addCorrectionBotMessage('✓ Đã ghi nhận. Chúng tôi sẽ xem xét và cập nhật sớm. Cảm ơn bà con!');
     }
     if (data.bonus) showBonusToast(data.bonus);
     endCorrectionMode();
-  } catch {
+  } catch (err) {
+    clearTimeout(progressTimer); clearTimeout(fetchTimeout);
+    document.getElementById('cf-progress-hint')?.remove();
     removeTyping();
     formDiv.querySelectorAll('button, input').forEach(el => el.disabled = false);
     if (submitBtn) submitBtn.textContent = '📤 Gửi thông tin đúng';
-    addCorrectionBotMessage('⚠️ Mất kết nối. Vui lòng thử lại.');
+    if (err.name === 'AbortError') {
+      addCorrectionBotMessage('⏳ Kiểm tra quá lâu. Thông tin đã được ghi nhận, admin sẽ xem xét. Cảm ơn bà con!');
+      endCorrectionMode();
+    } else {
+      addCorrectionBotMessage('⚠️ Mất kết nối. Vui lòng thử lại.');
+    }
   }
 }
 
