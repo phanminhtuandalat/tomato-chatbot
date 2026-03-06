@@ -309,7 +309,7 @@ async def api_correct_chat(req: CorrectChatRequest, request: Request):
 
         add_bonus_quota(device_id, 3)
         result["bonus"] = 3
-        await notify.push("correction", title)
+        await notify.push("correction", title)  # không raise — đã wrap try/except trong notify
 
     return JSONResponse(result)
 

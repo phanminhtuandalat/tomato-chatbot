@@ -22,9 +22,16 @@ log = logging.getLogger(__name__)
 _BATCH_SIZE   = 1       # flush ngay mỗi sự kiện (tắt batch để test)
 _BATCH_WINDOW = 3600    # hoặc khi đã chờ >= 1 giờ (giây)
 
-_queue:      list[dict] = []
-_last_sent:  float      = 0.0
-_lock = asyncio.Lock()
+_queue:     list[dict] = []
+_last_sent: float      = 0.0
+_lock:      asyncio.Lock | None = None  # lazy — tạo trong event loop
+
+
+def _get_lock() -> asyncio.Lock:
+    global _lock
+    if _lock is None:
+        _lock = asyncio.Lock()
+    return _lock
 
 
 def enabled() -> bool:
@@ -69,10 +76,13 @@ async def _flush() -> None:
 
 
 async def push(kind: str, title: str, reason: str = "") -> None:
-    """Thêm sự kiện, tự flush nếu đủ điều kiện."""
+    """Thêm sự kiện, tự flush nếu đủ điều kiện. Không bao giờ raise exception."""
     if not enabled():
         return
-    async with _lock:
-        _queue.append({"kind": kind, "title": title, "reason": reason})
-        if len(_queue) >= _BATCH_SIZE or (time.time() - _last_sent) >= _BATCH_WINDOW:
-            await _flush()
+    try:
+        async with _get_lock():
+            _queue.append({"kind": kind, "title": title, "reason": reason})
+            if len(_queue) >= _BATCH_SIZE or (time.time() - _last_sent) >= _BATCH_WINDOW:
+                await _flush()
+    except Exception as e:
+        log.warning("notify.push error: %s", e)
