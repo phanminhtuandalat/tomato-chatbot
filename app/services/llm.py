@@ -252,23 +252,26 @@ async def verify_and_correct(question: str, wrong_answer: str, correction: str) 
         if kb_context else "\n(Không có tài liệu liên quan)"
     )
 
-    prompt = f"""Người dùng phát hiện câu trả lời AI sai và cung cấp thông tin đúng hơn.
+    prompt = f"""Người dùng báo câu trả lời AI sai và cung cấp thông tin đúng hơn.
 
-Câu hỏi gốc: {question[:300]}
+Câu hỏi: {question[:300]}
 Câu trả lời AI (bị báo sai): {wrong_answer[:400]}
 Thông tin đúng theo người dùng: {correction[:500]}
 {context_section}
 
-Nhiệm vụ:
-1. Kiểm tra thông tin người dùng cung cấp có đúng về kỹ thuật nông nghiệp/cà chua không
-2. Nếu đúng (confidence >= 0.70): viết lại câu trả lời hoàn chỉnh, thực tế cho câu hỏi gốc
-3. Nếu không đủ cơ sở xác nhận: nói rõ lý do
+Nhiệm vụ: Kiểm tra thông tin người dùng có đúng kỹ thuật trồng cà chua không.
 
-Trả về JSON (chỉ JSON):
-{{"verified": true, "confidence": 0.9, "corrected_answer": "câu trả lời đầy đủ...", "reason": "lý do ngắn"}}"""
+Luôn trả về JSON hợp lệ (KHÔNG giải thích thêm, KHÔNG thêm text ngoài JSON):
+{{"verified": true, "confidence": 0.85, "corrected_answer": "câu trả lời ngắn gọn dưới 150 từ", "reason": "lý do 1 câu"}}
+
+Lưu ý:
+- corrected_answer: ngắn gọn, thực tế, dưới 150 từ
+- verified=true nếu confidence >= 0.70
+- verified=false nếu thông tin không đủ hoặc sai kỹ thuật
+- Dù KB không có dữ liệu vẫn dùng kiến thức chuyên môn để đánh giá"""
 
     raw = await _call([{"role": "user", "content": prompt}],
-                      model=OPENROUTER_MODEL, max_tokens=600)
+                      model=OPENROUTER_MODEL, max_tokens=800)
     import json, re
     try:
         m = re.search(r'\{.*\}', raw, re.DOTALL)
@@ -282,9 +285,19 @@ Trả về JSON (chỉ JSON):
                 "reason":            str(data.get("reason", ""))[:300],
             }
     except (json.JSONDecodeError, ValueError, KeyError) as e:
-        log.warning("verify_and_correct parse error: %s | raw: %.200s", e, raw)
+        log.warning("verify_and_correct parse error: %s | raw: %.300s", e, raw)
 
-    return {"verified": False, "confidence": 0.0, "corrected_answer": "", "reason": "Không thể kiểm chứng"}
+    # Fallback: JSON bị cắt hoặc không parse được — thử extract thủ công
+    if raw:
+        import re as _re
+        v = bool(_re.search(r'"verified"\s*:\s*true', raw, _re.IGNORECASE))
+        c = float((_re.search(r'"confidence"\s*:\s*([\d.]+)', raw) or [None, "0"])[1])
+        if v and c >= 0.7:
+            ans = (_re.search(r'"corrected_answer"\s*:\s*"([^"]{10,})"', raw) or [None, ""])[1]
+            if ans:
+                return {"verified": True, "confidence": c, "corrected_answer": ans[:1000], "reason": ""}
+
+    return {"verified": False, "confidence": 0.0, "corrected_answer": "", "reason": "Không đủ thông tin để xác nhận tự động — admin sẽ xem xét"}
 
 
 async def verify_tip(title: str, content: str, category: str) -> dict:
