@@ -374,6 +374,16 @@ async def api_correct(req: CorrectionRequest, request: Request):
             "bonus":            3,
         })
 
+    # AI không xác nhận được → lưu cho admin xem xét thủ công
+    title   = f"Sửa: {req.question[:80]}"
+    content = f"Câu hỏi: {req.question}\n\nCâu trả lời cũ (bị báo sai):\n{req.wrong_answer}\n\nThông tin người dùng cung cấp:\n{req.correction}"
+    tip_id  = save_community_tip(
+        device_id=device_id, title=title, content=content,
+        category="correction", region="",
+    )
+    update_tip_ai_result(tip_id, result.get("confidence", 0.0), result.get("reason", "Chưa đủ cơ sở xác nhận tự động"), "review")
+    await notify.push("pending_review", title)
+
     add_bonus_quota(device_id, 2)
     return JSONResponse({
         "verified": False,
