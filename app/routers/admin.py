@@ -278,11 +278,28 @@ async def community_reject(tip_id: int, req: RejectRequest, _: None = Depends(re
 
 @router.post("/admin/test-notify")
 async def test_notify(_: None = Depends(require_admin)):
-    from app.services.notify import push, enabled
+    from app.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+    from app.services.notify import enabled
+    import httpx
+
     if not enabled():
-        return JSONResponse({"ok": False, "reason": "Chưa cấu hình TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID"})
-    await push("error", "TEST — Telegram notify hoạt động!", "Đây là tin nhắn test từ admin panel.")
-    return JSONResponse({"ok": True})
+        missing = []
+        if not TELEGRAM_BOT_TOKEN: missing.append("TELEGRAM_BOT_TOKEN")
+        if not TELEGRAM_CHAT_ID:   missing.append("TELEGRAM_CHAT_ID")
+        return JSONResponse({"ok": False, "reason": f"Thiếu biến môi trường: {', '.join(missing)}"})
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": "🍅 TEST — Telegram notify hoạt động!"},
+            )
+        data = res.json()
+        if res.status_code == 200 and data.get("ok"):
+            return JSONResponse({"ok": True})
+        return JSONResponse({"ok": False, "reason": f"Telegram lỗi {res.status_code}: {data.get('description', str(data))}"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "reason": str(e)})
 
 
 # ---------------------------------------------------------------------------

@@ -97,11 +97,14 @@ def init_db() -> None:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tips_status ON community_tips(status)")
-        # Migration: thêm cột AI verification (bỏ qua nếu đã tồn tại)
+        # Migration: thêm các cột mới (bỏ qua nếu đã tồn tại)
         for col in [
             "ALTER TABLE community_tips ADD COLUMN ai_confidence REAL DEFAULT NULL",
             "ALTER TABLE community_tips ADD COLUMN ai_reason TEXT DEFAULT ''",
             "ALTER TABLE community_tips ADD COLUMN ai_action TEXT DEFAULT ''",
+            "ALTER TABLE premium_codes ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE premium_codes ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE premium_codes ADD COLUMN note TEXT DEFAULT ''",
         ]:
             try:
                 conn.execute(col)
