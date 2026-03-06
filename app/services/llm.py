@@ -240,6 +240,31 @@ async def chat(
     return answer
 
 
+async def generate_followup_options(question: str, wrong_answer: str, field_label: str) -> list[str]:
+    """Khi user chọn 'Khác', tạo thêm 4-6 options cụ thể hơn cho trường đó."""
+    prompt = f"""Câu hỏi về cà chua: {question[:200]}
+Câu trả lời AI bị sai: {wrong_answer[:300]}
+Trường đang hỏi: "{field_label}"
+Người dùng chọn "Khác" — nghĩa là các lựa chọn trước chưa đúng.
+
+Liệt kê 4-6 giá trị phổ biến khác trong kỹ thuật trồng cà chua Việt Nam cho trường "{field_label}".
+Không lặp lại các giá trị đã có. Luôn kết thúc bằng "Nhập tay".
+
+Trả về JSON: {{"options": ["giá trị 1", "giá trị 2", "giá trị 3", "Nhập tay"]}}"""
+
+    raw = await _call([{"role": "user", "content": prompt}], model=OPENROUTER_MODEL_FAST, max_tokens=200)
+    import json, re
+    try:
+        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        if m:
+            opts = json.loads(m.group()).get("options", [])
+            if opts:
+                return [str(o) for o in opts]
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        log.warning("generate_followup_options parse error: %s", e)
+    return []
+
+
 async def verify_and_correct(question: str, wrong_answer: str, correction: str) -> dict:
     """
     Kiểm chứng thông tin sửa của người dùng và viết lại câu trả lời đúng.

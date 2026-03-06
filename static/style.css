@@ -526,6 +526,15 @@ body {
 }
 .cf-yn:hover:not(.selected) { background: #e8f5e9; }
 .cf-yn.selected { background: #2e7d32; color: white; border-color: #2e7d32; }
+.cf-extra-opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.cf-sub-opt {
+  font-size: 12px; padding: 5px 13px; border-radius: 16px;
+  border: 1.5px solid #ff8a65; background: white; color: #333;
+  cursor: pointer; transition: all 0.15s;
+}
+.cf-sub-opt:hover:not(.selected) { background: #fff3e0; }
+.cf-sub-opt.selected { background: #e65100; color: white; border-color: #e65100; }
+.cf-loading-hint { font-size: 12px; color: #888; margin-top: 6px; }
 .cf-submit-btn {
   width: 100%; padding: 10px; border-radius: 10px; margin-top: 6px;
   background: linear-gradient(135deg, #2e7d32, #43a047);

@@ -272,8 +272,70 @@ function renderCorrectionForm(formData, msgId) {
 function selectCfOption(btn, qid) {
   btn.closest('.cf-options').querySelectorAll('.cf-opt').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
+  // Hide plain text input and remove any previous sub-opts
   const other = document.getElementById(`cf-other-${qid}`);
-  if (other) other.style.display = btn.textContent.trim() === 'Khác' ? 'block' : 'none';
+  if (other) other.style.display = 'none';
+  document.getElementById(`cf-extra-${qid}`)?.remove();
+  document.getElementById(`cf-manual-${qid}`)?.remove();
+  if (btn.textContent.trim() === 'Khác') handleKhacSelection(btn, qid);
+}
+
+async function handleKhacSelection(btn, qid) {
+  const qDiv = btn.closest('.cf-question');
+  const label = qDiv.querySelector('.cf-label')?.textContent || '';
+
+  const loadDiv = document.createElement('div');
+  loadDiv.id = `cf-extra-${qid}`;
+  loadDiv.className = 'cf-loading-hint';
+  loadDiv.textContent = '⏳ Đang tạo thêm lựa chọn...';
+  qDiv.appendChild(loadDiv);
+
+  try {
+    const res = await fetch('/api/correction-followup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        question:    correctionState?.question    || '',
+        wrong_answer: correctionState?.wrongAnswer || '',
+        field_label: label,
+      }),
+    });
+    const data = await res.json();
+    const opts = data.options || [];
+    if (!opts.length) throw new Error('empty');
+
+    loadDiv.className = 'cf-extra-opts';
+    loadDiv.textContent = '';
+    opts.forEach(opt => {
+      const b = document.createElement('button');
+      b.className = 'cf-sub-opt';
+      b.textContent = opt;
+      b.onclick = () => selectCfSubOpt(b, qid);
+      loadDiv.appendChild(b);
+    });
+  } catch(_) {
+    loadDiv.remove();
+    const inp = document.getElementById(`cf-other-${qid}`);
+    if (inp) inp.style.display = 'block';
+  }
+}
+
+function selectCfSubOpt(btn, qid) {
+  btn.closest('.cf-extra-opts').querySelectorAll('.cf-sub-opt').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  const existing = document.getElementById(`cf-manual-${qid}`);
+  if (btn.textContent.trim() === 'Nhập tay') {
+    if (!existing) {
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.className = 'cf-other';
+      inp.id = `cf-manual-${qid}`; inp.placeholder = 'Nhập giá trị...';
+      btn.closest('.cf-extra-opts').after(inp);
+    } else {
+      existing.style.display = 'block';
+    }
+  } else if (existing) {
+    existing.style.display = 'none';
+  }
 }
 
 function selectYesNo(btn, qid) {
@@ -294,7 +356,16 @@ async function submitCorrectionForm(msgId) {
     const selOpt = qDiv.querySelector('.cf-opt.selected');
     if (selOpt) {
       let val = selOpt.textContent.trim();
-      if (val === 'Khác') val = document.getElementById(`cf-other-${qid}`)?.value.trim() || '';
+      if (val === 'Khác') {
+        // Check dynamic sub-options first
+        const selSub = qDiv.querySelector('.cf-sub-opt.selected');
+        if (selSub) {
+          val = selSub.textContent.trim();
+          if (val === 'Nhập tay') val = document.getElementById(`cf-manual-${qid}`)?.value.trim() || '';
+        } else {
+          val = document.getElementById(`cf-other-${qid}`)?.value.trim() || '';
+        }
+      }
       if (val) answers.push(`${label}: ${val}`);
       return;
     }

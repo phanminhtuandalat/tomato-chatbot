@@ -267,6 +267,19 @@ class CorrectionFormRequest(BaseModel):
     wrong_answer: str = ""
 
 
+class FollowupRequest(BaseModel):
+    question:    str = ""
+    wrong_answer: str = ""
+    field_label: str = ""
+
+
+@router.post("/api/correction-followup")
+async def api_correction_followup(req: FollowupRequest):
+    from app.services.llm import generate_followup_options
+    opts = await generate_followup_options(req.question, req.wrong_answer, req.field_label)
+    return JSONResponse({"options": opts})
+
+
 @router.post("/api/correction-form")
 async def api_correction_form(req: CorrectionFormRequest, request: Request):
     from app.services.llm import generate_correction_form
