@@ -331,50 +331,61 @@ def get_analytics() -> dict:
 def get_flywheel_data() -> dict:
     """
     Data Flywheel insights:
-    1. bad_questions: câu hỏi bị đánh giá 👎 nhiều nhất
-    2. gaps: từ khoá hay được hỏi nhưng knowledge base chưa cover tốt
+    1. bad_answers: câu trả lời bị 👎 nhiều lần (group by answer — chính xác hơn group by question)
+    2. gaps: cụm từ (bigram + unigram) hay được hỏi nhưng KB chưa cover tốt
     """
     import unicodedata, re
     from app.services.rag import rag
 
     with get_conn() as conn:
-        # Câu hỏi bị đánh giá 👎 (nhóm theo nội dung)
+        # FIX: group by answer — cùng câu trả lời tệ xuất hiện với nhiều câu hỏi khác nhau
         bad_rows = conn.execute("""
             SELECT question, answer, COUNT(*) as cnt, MAX(ts) as last_seen
             FROM feedback
-            WHERE rating = -1 AND LENGTH(question) > 5
-            GROUP BY question
+            WHERE rating = -1 AND LENGTH(answer) > 10
+            GROUP BY answer
             ORDER BY cnt DESC
             LIMIT 15
         """).fetchall()
 
-        # Tất cả câu hỏi để tính gap
         all_qs = conn.execute("SELECT question FROM questions").fetchall()
 
-    # Tính tần suất từ khoá (giống get_analytics)
     stop = {"tôi","bị","như","thế","nào","là","có","và","của","để","cho","khi",
             "với","trong","từ","đến","được","một","này","không","hay","gì",
-            "về","cần","làm","sao","ra","vì","thì","mà","đã","đang","sẽ"}
+            "về","cần","làm","sao","ra","vì","thì","mà","đã","đang","sẽ",
+            "ạ","ơi","vậy","nhé","bao","lâu","như","thế","nào","có","phải"}
+    _pat = re.compile(
+        r"[a-zàáảãạăắặẳẵằâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ]+"
+    )
+
     freq: dict[str, int] = {}
     for (q,) in all_qs:
         text = unicodedata.normalize("NFC", q.lower())
-        for word in re.findall(
-            r"[a-zàáảãạăắặẳẵằâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ]+",
-            text
-        ):
-            if len(word) >= 3 and word not in stop:
-                freq[word] = freq.get(word, 0) + 1
+        words = [w for w in _pat.findall(text) if len(w) >= 3]
+        # Unigram (từ đơn, ≥4 ký tự)
+        for w in words:
+            if len(w) >= 4 and w not in stop:
+                freq[w] = freq.get(w, 0) + 1
+        # Bigram (cụm 2 từ — bỏ qua nếu từ đầu hoặc từ sau là stop word)
+        for i in range(len(words) - 1):
+            if words[i] not in stop and words[i+1] not in stop:
+                bigram = f"{words[i]} {words[i+1]}"
+                freq[bigram] = freq.get(bigram, 0) + 1
 
-    # Kiểm tra từng từ khoá có được knowledge base cover không
-    top_keywords = sorted(freq.items(), key=lambda x: -x[1])[:30]
+    # Ưu tiên bigram (có ngữ nghĩa rõ hơn) — top 40 theo tần suất
+    top = sorted(freq.items(), key=lambda x: -x[1])[:40]
     gaps = []
-    for word, count in top_keywords:
+    for phrase, count in top:
         if count < 2:
             continue
-        result = rag.search(word, top_k=1)
-        covered = bool(result and len(result) > 50)
+        result = rag.search(phrase, top_k=2)
+        # Ngưỡng cao hơn: cần ≥200 ký tự tài liệu liên quan mới coi là đã cover
+        covered = bool(result and len(result) > 200)
         if not covered:
-            gaps.append({"word": word, "count": count})
+            is_bigram = " " in phrase
+            gaps.append({"word": phrase, "count": count, "is_bigram": is_bigram})
+        if len(gaps) >= 20:
+            break
 
     return {
         "bad_questions": [
@@ -386,7 +397,7 @@ def get_flywheel_data() -> dict:
             }
             for r in bad_rows
         ],
-        "gaps": gaps[:15],
+        "gaps": gaps,
     }
 
 

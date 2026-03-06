@@ -355,10 +355,42 @@ async function loadFlywheel() {
     const maxCount = d.gaps[0]?.count || 1;
     gapCloud.innerHTML = d.gaps.map(g => {
       const size = g.count >= maxCount * 0.7 ? '15px' : '13px';
-      return `<span class="gap-tag" style="font-size:${size};" title="${g.count} lần hỏi">
-        ${g.word} <b style="font-size:11px;opacity:0.7;">${g.count}</b>
+      const badge = g.is_bigram ? ' 🔗' : '';
+      return `<span class="gap-tag" style="font-size:${size};cursor:pointer;" title="${g.count} lần hỏi — bấm để AI tạo bài" onclick="generateGapContent('${g.word.replace(/'/g,"\\'")}', this)">
+        ${g.word}${badge} <b style="font-size:11px;opacity:0.7;">${g.count}</b>
       </span>`;
     }).join('');
+  }
+}
+
+async function generateGapContent(topic, el) {
+  if (el._loading) return;
+  el._loading = true;
+  const orig = el.innerHTML;
+  el.innerHTML = `⏳ Đang tạo...`;
+  el.style.opacity = '0.7';
+  try {
+    const res = await fetch('/admin/generate-gap-content', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      el.innerHTML = `✅ ${topic}`;
+      el.style.background = '#e8f5e9'; el.style.borderColor = '#4caf50';
+      el.style.color = '#2e7d32'; el.style.cursor = 'default';
+      el.title = `Đã tạo: ${data.filename}\n\n${data.preview}`;
+      loadDocs(); // refresh danh sách docs
+    } else {
+      el.innerHTML = orig;
+      alert('Lỗi: ' + data.error);
+    }
+  } catch(e) {
+    el.innerHTML = orig;
+    alert('Lỗi kết nối');
+  } finally {
+    el.style.opacity = '1';
+    el._loading = false;
   }
 }
 

@@ -279,6 +279,59 @@ async def community_reject(tip_id: int, req: RejectRequest, _: None = Depends(re
 
 
 # ---------------------------------------------------------------------------
+# Data Flywheel — AI tạo bài từ gap
+# ---------------------------------------------------------------------------
+
+class GapContentRequest(BaseModel):
+    topic: str
+
+@router.post("/admin/generate-gap-content")
+async def generate_gap_content(req: GapContentRequest, _: None = Depends(require_admin)):
+    topic = req.topic.strip()[:100]
+    if not topic:
+        return JSONResponse({"ok": False, "error": "Chưa có chủ đề"})
+
+    prompt = f"""Bạn là chuyên gia trồng cà chua Việt Nam. Viết một bài kiến thức ngắn (~400 từ) về chủ đề: "{topic}"
+
+Cấu trúc bài:
+# [Tiêu đề rõ ràng về {topic}]
+
+## Tổng quan
+[2-3 câu giới thiệu]
+
+## Triệu chứng / Đặc điểm
+[Mô tả cụ thể bà con nhận biết]
+
+## Nguyên nhân
+[Nguyên nhân chính]
+
+## Cách xử lý
+[Tên thuốc/biện pháp, liều lượng, thời điểm — cụ thể cho điều kiện Việt Nam]
+
+## Phòng ngừa
+[2-3 biện pháp phòng ngừa]
+
+Yêu cầu: tiếng Việt, thực tế, có số liệu cụ thể (liều lượng, khoảng cách, thời gian). KHÔNG bịa đặt."""
+
+    try:
+        from app.services.llm import _call, OPENROUTER_MODEL
+        raw = await _call(
+            [{"role": "user", "content": prompt}],
+            model=OPENROUTER_MODEL,
+            max_tokens=700,
+        )
+        # Lưu thành file .md và đưa vào KB
+        title = f"Hướng dẫn: {topic}"
+        out = _save_doc(title, raw.strip(), f"gap_auto_{topic[:30]}")
+        rag_module.rag.reload()
+        if EMBED_ENABLED:
+            await index_document(out.stem, title, out.read_text(encoding="utf-8"))
+        return JSONResponse({"ok": True, "filename": out.name, "preview": raw[:300]})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+# ---------------------------------------------------------------------------
 # Test Telegram
 # ---------------------------------------------------------------------------
 
