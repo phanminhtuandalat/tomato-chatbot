@@ -248,9 +248,9 @@ function _createStreamingBubble() {
     bubble.classList.remove('streaming');
     bubble.innerHTML = renderBot(answerText);
 
-    // Render sources ngay dưới bubble
+    // Sources chèn SAU div.msg-bot, TRƯỚC feedback (msg-bot là flex row nên không thể chèn bên trong)
     const sourcesEl = _renderSources(sources);
-    if (sourcesEl) div.appendChild(sourcesEl);
+    if (sourcesEl) div.after(sourcesEl);
 
     const showActive = !activeFeedbackShownToday && !!questionText
       && !answerText.startsWith('⚠️') && !answerText.startsWith('Lỗi') && !answerText.startsWith('Hệ thống');
@@ -775,8 +775,7 @@ async function sendMessage() {
         bubble.innerHTML = renderBot(msg || 'Lỗi không xác định.');
       },
       onSuggestions(questions) {
-        const feedbackEl = document.getElementById(msgId);
-        _showSuggestions(feedbackEl, questions);
+        _showSuggestions(document.getElementById(msgId), questions);
       },
     });
 
