@@ -105,6 +105,7 @@ def init_db() -> None:
             "ALTER TABLE premium_codes ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE premium_codes ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE premium_codes ADD COLUMN note TEXT DEFAULT ''",
+            "ALTER TABLE premium_codes ADD COLUMN expires_at TEXT DEFAULT NULL",
         ]:
             try:
                 conn.execute(col)
@@ -183,13 +184,15 @@ def redeem_code(code: str, ip: str) -> dict:
     from datetime import datetime
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT requests, images, max_uses, used_count FROM premium_codes WHERE code=?",
+            "SELECT requests, images, max_uses, used_count, expires_at FROM premium_codes WHERE code=?",
             (code.upper(),)
         ).fetchone()
         if not row:
             return {"ok": False, "reason": "Mã không hợp lệ"}
         if row["used_count"] >= row["max_uses"]:
             return {"ok": False, "reason": "Mã đã hết lượt sử dụng"}
+        if row["expires_at"] and datetime.now().isoformat() > row["expires_at"]:
+            return {"ok": False, "reason": "Mã đã hết hạn"}
         # Kiểm tra IP này đã dùng mã này chưa
         already = conn.execute(
             "SELECT 1 FROM code_redemptions WHERE code=? AND ip=?", (code.upper(), ip)
@@ -253,13 +256,13 @@ def consume_premium(ip: str, is_image: bool = False) -> bool:
     return True
 
 
-def create_premium_code(code: str, requests: int, images: int, max_uses: int = 1, note: str = "") -> bool:
+def create_premium_code(code: str, requests: int, images: int, max_uses: int = 1, note: str = "", expires_at: str | None = None) -> bool:
     from datetime import datetime
     with get_conn() as conn:
         try:
             conn.execute(
-                "INSERT INTO premium_codes (code, requests, images, max_uses, created_at, note) VALUES (?,?,?,?,?,?)",
-                (code.upper(), requests, images, max_uses, datetime.now().isoformat(timespec="seconds"), note),
+                "INSERT INTO premium_codes (code, requests, images, max_uses, created_at, note, expires_at) VALUES (?,?,?,?,?,?,?)",
+                (code.upper(), requests, images, max_uses, datetime.now().isoformat(timespec="seconds"), note, expires_at),
             )
             return True
         except Exception:

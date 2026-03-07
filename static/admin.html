@@ -88,6 +88,12 @@
       </div>
       <input id="codeNote" type="text" placeholder="Ghi chú (vd: Gói 20k - bán tháng 3)"
         style="border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;" />
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+        <label style="font-size:12px;color:#666;white-space:nowrap;">Hết hạn:</label>
+        <input id="codeExpiry" type="date" title="Để trống = không hết hạn"
+          style="border:1.5px solid #c8e6c9;border-radius:10px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;background:#f9fbe7;flex:1;" />
+        <span style="font-size:11px;color:#aaa;">Để trống = không hết hạn</span>
+      </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
       <button class="btn" style="font-size:12px;padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;" onclick="fillCode('PLUS30',30,5,1,'Gói 30 câu - 1 người')">Mẫu: 1 người</button>

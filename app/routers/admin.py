@@ -221,10 +221,11 @@ class PremiumCodeRequest(BaseModel):
     images: int = 0
     max_uses: int = 1
     note: str = ""
+    expires_at: str | None = None  # ISO date string, ví dụ "2026-12-31" hoặc None = không hết hạn
 
 @router.post("/admin/premium-code")
 async def create_code(req: PremiumCodeRequest, _: None = Depends(require_admin)):
-    ok = create_premium_code(req.code, req.requests, req.images, req.max_uses, req.note)
+    ok = create_premium_code(req.code, req.requests, req.images, req.max_uses, req.note, req.expires_at)
     if not ok:
         return JSONResponse({"ok": False, "error": "Mã đã tồn tại"})
     return JSONResponse({"ok": True, "code": req.code.upper()})

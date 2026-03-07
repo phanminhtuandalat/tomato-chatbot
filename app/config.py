@@ -47,5 +47,11 @@ PUSH_ENABLED      = bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY)
 TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID   = _get("TELEGRAM_CHAT_ID")
 
+# Cost cap — giới hạn số lần gọi LLM mỗi ngày để kiểm soát chi phí
+# Sonnet (~$0.01/call): mặc định 300 calls/ngày ≈ $3/ngày
+# Haiku (~$0.001/call): mặc định 2000 calls/ngày ≈ $2/ngày
+MAX_DAILY_SONNET_CALLS = int(_get("MAX_DAILY_SONNET_CALLS", "300"))
+MAX_DAILY_HAIKU_CALLS  = int(_get("MAX_DAILY_HAIKU_CALLS",  "2000"))
+
 # Server
 PORT = int(_get("PORT", "8000"))

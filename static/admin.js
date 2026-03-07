@@ -154,17 +154,18 @@ function fillCode(code, requests, images, maxUses, note) {
 }
 
 async function createCode() {
-  const code     = document.getElementById('codeInput').value.trim().toUpperCase();
-  const requests = parseInt(document.getElementById('codeRequests').value) || 0;
-  const images   = parseInt(document.getElementById('codeImages').value) || 0;
-  const max_uses = parseInt(document.getElementById('codeMaxUses').value) || 1;
-  const note     = document.getElementById('codeNote').value.trim();
-  const result   = document.getElementById('codeResult');
+  const code       = document.getElementById('codeInput').value.trim().toUpperCase();
+  const requests   = parseInt(document.getElementById('codeRequests').value) || 0;
+  const images     = parseInt(document.getElementById('codeImages').value) || 0;
+  const max_uses   = parseInt(document.getElementById('codeMaxUses').value) || 1;
+  const note       = document.getElementById('codeNote').value.trim();
+  const expires_at = document.getElementById('codeExpiry').value || null;
+  const result     = document.getElementById('codeResult');
   if (!code || requests < 1) { alert('Nhập mã và số câu hỏi'); return; }
   const res  = await fetch('/admin/premium-code', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, requests, images, max_uses, note }),
+    body: JSON.stringify({ code, requests, images, max_uses, note, expires_at }),
   });
   const data = await res.json();
   if (data.ok) {
@@ -194,7 +195,7 @@ async function loadCodes() {
         <span style="font-size:15px;font-weight:700;font-family:monospace;color:#1b5e20;">${c.code}</span>
         <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${statusBg};color:${statusColor};">${statusText}</span>
       </div>
-      <div style="font-size:12px;color:#555;">+${c.requests} câu hỏi · +${c.images} ảnh · tối đa ${c.max_uses} người${c.note ? ' · ' + c.note : ''}</div>
+      <div style="font-size:12px;color:#555;">+${c.requests} câu hỏi · +${c.images} ảnh · tối đa ${c.max_uses} người${c.note ? ' · ' + c.note : ''}${c.expires_at ? ' · HH: ' + c.expires_at.slice(0,10) : ''}</div>
       ${ips}
     </div>`;
   }).join('');

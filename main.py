@@ -61,14 +61,19 @@ async def lifespan(app: FastAPI):
     from app.services.evolution import evolution_scheduler
     _evo_task = asyncio.create_task(evolution_scheduler())
 
+    # ── DB Backup (Telegram, 3 AM daily) ─────────────────────
+    from app.services.backup import backup_scheduler
+    _backup_task = asyncio.create_task(backup_scheduler())
+
     yield
 
     # ── Shutdown ─────────────────────────────────────────────
-    _evo_task.cancel()
-    try:
-        await _evo_task
-    except asyncio.CancelledError:
-        pass
+    for task in (_evo_task, _backup_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Chatbot Cà Chua", version="2.0.0", lifespan=lifespan)
