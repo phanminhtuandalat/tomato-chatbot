@@ -109,7 +109,8 @@ class ChatRequest(BaseModel):
     region: str = ""
     lat: float = 0.0
     lon: float = 0.0
-    new_session: bool = False  # client yêu cầu xóa session, bắt đầu cuộc trò chuyện mới
+    new_session: bool = False      # client yêu cầu xóa session, bắt đầu cuộc trò chuyện mới
+    search_enabled: bool = False   # user bật công cụ tìm kiếm web
 
 
 _ERROR_MESSAGES = {
@@ -208,9 +209,10 @@ async def api_chat(req: ChatRequest, request: Request):
 
 @router.post("/api/chat/stream")
 async def api_chat_stream(req: ChatRequest, request: Request):
-    question  = req.message.strip()
-    image     = req.image.strip()
-    device_id = _get_device_id(request)
+    question       = req.message.strip()
+    image          = req.image.strip()
+    search_enabled = req.search_enabled and not image  # tìm kiếm chỉ cho text
+    device_id      = _get_device_id(request)
 
     _check_rate(device_id, request.client.host, has_image=bool(image))
 
@@ -252,34 +254,41 @@ async def api_chat_stream(req: ChatRequest, request: Request):
 
         # ── Phase 0: Tool execution ──────────────────────────────────────────
         effective_context = context
-        if question and not image:
+
+        if question:
             tool_parts: list[str] = []
 
-            # Web search — khi câu hỏi cần thông tin mới/thị trường
-            if tools_module.needs_search(question):
-                search_query = f"{question} cà chua Việt Nam"
-                yield f"data: {_json.dumps({'t': 'tool', 'name': 'web_search', 'q': search_query[:80]}, ensure_ascii=False)}\n\n"
+            # Web search — CHỈ khi user bật toggle tìm kiếm
+            if search_enabled:
+                yield f"data: {_json.dumps({'t': 'tool', 'name': 'web_search', 'q': question[:80]}, ensure_ascii=False)}\n\n"
                 try:
-                    result = await tools_module.web_search(search_query)
-                    if result:
-                        tool_parts.append(f"[Kết quả tìm kiếm internet]\n{result}")
+                    web_result = await tools_module.web_search(question)
+                    if web_result:
+                        tool_parts.append(web_result)
                 except Exception as e:
                     log.warning("web_search error: %s", e)
 
-            # Calculator — khi câu hỏi có phép tính cụ thể
+            # Calculator — tự động khi phát hiện phép tính (không cần network)
             if tools_module.needs_calculate(question):
                 expr = tools_module.extract_expression(question)
                 if expr:
                     yield f"data: {_json.dumps({'t': 'tool', 'name': 'calculate', 'q': expr}, ensure_ascii=False)}\n\n"
-                    calc_result = tools_module.calculate(expr)
-                    tool_parts.append(f"[Kết quả tính toán]\n{calc_result}")
+                    tool_parts.append(f"[Kết quả tính toán] {tools_module.calculate(expr)}")
 
+            # Kết hợp KB + web: KB là nguồn chính, web bổ sung + buộc trích nguồn
             if tool_parts:
-                tool_context = "\n\n".join(tool_parts)
-                effective_context = (
-                    f"{tool_context}\n\n---\nKiến thức nội bộ:\n{context}"
-                    if context else tool_context
-                )
+                web_block = "\n\n".join(tool_parts)
+                if context:
+                    effective_context = (
+                        f"[Kiến thức nội bộ — ưu tiên dùng]\n{context}\n\n"
+                        f"---\n[Kết quả tìm kiếm internet — dùng khi KB không đủ, "
+                        f"BẮT BUỘC trích nguồn cuối câu dạng *(Nguồn: tên-trang)*]\n{web_block}"
+                    )
+                else:
+                    effective_context = (
+                        f"[Kết quả tìm kiếm internet — BẮT BUỘC trích nguồn "
+                        f"cuối câu dạng *(Nguồn: tên-trang)*]\n{web_block}"
+                    )
 
         # ── Phase 1: Stream LLM answer ───────────────────────────────────────
         try:

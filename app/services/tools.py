@@ -21,25 +21,6 @@ log = logging.getLogger(__name__)
 # Keyword detection — câu hỏi nào cần tìm kiếm internet
 # ---------------------------------------------------------------------------
 
-_SEARCH_PATTERNS = [
-    r"\bgiá\b",                         # giá cà chua, giá phân bón
-    r"bán .{0,20}ở đâu",
-    r"mua .{0,20}ở đâu",
-    r"\bthị trường\b",
-    r"\bgiá cả\b",
-    r"hôm nay|hôm qua|tuần này|tháng này",
-    r"mới nhất|hiện nay|hiện tại|gần đây",
-    r"tin tức|thông tin mới",
-    r"dịch bệnh .{0,15}đang",
-    r"đang xảy ra|đang bùng phát",
-    r"thuốc .{0,20}còn bán|còn không",
-    r"bao nhiêu tiền|chi phí|kinh phí",
-    r"xuất khẩu|nhập khẩu",
-    r"tìm kiếm|tra cứu",
-]
-
-_SEARCH_RE = re.compile("|".join(_SEARCH_PATTERNS), re.IGNORECASE | re.UNICODE)
-
 _CALC_PATTERNS = [
     r"\btính\b",
     r"bao nhiêu (ml|lít|kg|g|gram|cc|m2|ha|hecta|gói|bình)",
@@ -52,10 +33,6 @@ _CALC_PATTERNS = [
 ]
 
 _CALC_RE = re.compile("|".join(_CALC_PATTERNS), re.IGNORECASE | re.UNICODE)
-
-
-def needs_search(question: str) -> bool:
-    return bool(_SEARCH_RE.search(question))
 
 
 def needs_calculate(question: str) -> bool:
@@ -123,7 +100,7 @@ async def _ddg_search(query: str) -> str:
             return "Không tìm thấy thông tin mới trên internet."
 
         parts = [
-            f"• {r['title']}: {r['body'][:350]}"
+            f"• {r['title']}: {r['body'][:350]} ({r.get('href', '')})"
             for r in results if r.get("body")
         ]
         return "\n".join(parts) if parts else "Không tìm thấy thông tin mới trên internet."

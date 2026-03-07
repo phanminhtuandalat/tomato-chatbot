@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Cà Chua" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=20260308c" />
+  <link rel="stylesheet" href="/static/style.css?v=20260308d" />
 </head>
 <body>
 <div class="app">
@@ -178,6 +178,16 @@ Bà con cũng có thể <b>chụp ảnh lá/quả bị bệnh</b> gửi lên, t�
     <button class="preview-remove" onclick="removeImage()" title="Xoá ảnh">✕</button>
   </div>
 
+  <!-- Tool bar — công cụ bổ sung (ẩn khi không dùng) -->
+  <div class="tool-bar">
+    <button class="tool-pill" id="searchPill" onclick="toggleSearch()" title="Bật / tắt tìm kiếm web">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      Tìm kiếm web
+    </button>
+  </div>
+
   <!-- Input -->
   <div class="input-bar">
     <!-- Nút chọn ảnh -->
@@ -215,6 +225,6 @@ Bà con cũng có thể <b>chụp ảnh lá/quả bị bệnh</b> gửi lên, t�
 
 </div>
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
-<script src="/static/app.js?v=20260308d"></script>
+<script src="/static/app.js?v=20260308e"></script>
 </body>
 </html>

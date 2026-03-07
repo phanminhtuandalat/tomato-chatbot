@@ -560,6 +560,28 @@ body {
   40%{transform:translateY(-7px);background:#2e7d32}
 }
 
+/* ── Tool bar (bên trên input) ── */
+.tool-bar {
+  background: white; padding: 6px 12px 2px;
+  display: flex; gap: 6px; flex-wrap: wrap;
+  border-top: 1px solid #f0f0f0; flex-shrink: 0;
+}
+.tool-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12.5px; font-weight: 500; font-family: inherit;
+  color: #555; background: #f5f5f5;
+  border: 1.5px solid #e0e0e0; border-radius: 20px;
+  padding: 5px 12px; cursor: pointer;
+  transition: all 0.18s;
+}
+.tool-pill:hover { border-color: #a5d6a7; color: #2e7d32; background: #f1f8f1; }
+.tool-pill.active {
+  color: #1b5e20; background: #e8f5e9;
+  border-color: #2e7d32;
+  box-shadow: 0 0 0 2px rgba(46,125,50,0.12);
+}
+.tool-pill.active svg { stroke: #2e7d32; }
+
 /* ── Input bar ── */
 .input-bar {
   background: white; padding: 10px 12px;

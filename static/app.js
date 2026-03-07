@@ -10,6 +10,7 @@ let userLat = 0, userLon = 0;
 let firstMessageSent = false;
 let lastSubmissionId = null;
 let activeFeedbackShownToday = localStorage.getItem('feedback-date') === new Date().toISOString().slice(0,10);
+let searchEnabled = false;
 
 /* ── Banner mùa vụ ── */
 const SEASON_INFO = {
@@ -704,6 +705,16 @@ async function submitTip() {
 /* ── Quick ask ── */
 function quickAsk(btn) { inputEl.value = btn.textContent.replace(/^[\p{Emoji}\s]+/u, '').trim(); sendMessage(); }
 
+/* ── Search toggle ── */
+function toggleSearch() {
+  searchEnabled = !searchEnabled;
+  const pill = document.getElementById('searchPill');
+  pill.classList.toggle('active', searchEnabled);
+  inputEl.placeholder = searchEnabled
+    ? 'Nhắn tin... (kết hợp tìm kiếm web)'
+    : 'Nhắn tin hoặc gửi ảnh sâu bệnh...';
+}
+
 /* ── New session ── */
 async function newSession() {
   await fetch('/api/new-session', { method: 'POST' }).catch(() => {});
@@ -729,7 +740,7 @@ async function sendMessage() {
   showTyping();
 
   try {
-    const body = { message: text, image, region: userRegion };
+    const body = { message: text, image, region: userRegion, search_enabled: searchEnabled };
     if (userLat && userLon) { body.lat = userLat; body.lon = userLon; }
 
     const res = await fetch('/api/chat/stream', {
