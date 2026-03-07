@@ -149,6 +149,7 @@ def init_db() -> None:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_evolution_ts ON evolution_log(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_questions_ts ON questions(ts)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS rate_limits (
                 key   TEXT    NOT NULL,
@@ -164,6 +165,9 @@ def init_db() -> None:
 def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # WAL mode: cho phép đọc đồng thời khi đang ghi; busy_timeout tránh "database is locked"
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     try:
         yield conn
         conn.commit()
@@ -441,7 +445,7 @@ def save_community_tip(device_id: str, title: str, content: str, category: str, 
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO community_tips (device_id, title, content, category, region, created_at) VALUES (?,?,?,?,?,?)",
-            (device_id, title[:200], content[:3000], category, region,
+            (device_id, title[:200], content[:8000], category, region,
              datetime.now().isoformat(timespec="seconds")),
         )
         return cur.lastrowid
@@ -519,25 +523,15 @@ def get_image_submissions(limit: int = 50) -> list[dict]:
 
 POINTS_PER_QUESTION = 20  # 20 điểm = 1 lượt hỏi
 
-# Giới hạn hành động/ngày — in-memory (reset khi restart server)
-_pts_daily: dict[str, int] = {}   # key = "device_id:action"
-_pts_daily_date: str = ""
-
 
 def _pts_daily_ok(device_id: str, action: str, max_per_day: int) -> bool:
-    """Kiểm tra và ghi nhận 1 lần thực hiện action. True = còn trong giới hạn."""
+    """
+    Kiểm tra giới hạn điểm/ngày qua SQLite (persist qua restart).
+    Dùng lại rate_limits table — kind = "pts_{action}".
+    """
     from datetime import datetime as _dt2
-    global _pts_daily_date
     today = _dt2.now().strftime("%Y-%m-%d")
-    if _pts_daily_date != today:
-        _pts_daily.clear()
-        _pts_daily_date = today
-    key = f"{device_id}:{action}"
-    count = _pts_daily.get(key, 0)
-    if count >= max_per_day:
-        return False
-    _pts_daily[key] = count + 1
-    return True
+    return check_and_increment_rate(device_id, f"pts_{action}", today, max_per_day)
 
 
 def add_points(device_id: str, action: str, points: int, daily_limit: int | None = None) -> dict:
@@ -618,23 +612,21 @@ def get_tip_device_id(tip_id: int) -> str | None:
 
 def check_and_increment_rate(key: str, kind: str, date: str, limit: int) -> bool:
     """
-    Kiểm tra và tăng counter nguyên tử trong 1 transaction.
-    Trả về True nếu còn trong giới hạn (đã tăng).
-    Trả về False nếu đã đạt giới hạn (không tăng).
+    Tăng counter nguyên tử và kiểm tra giới hạn trong 1 transaction — không có race condition.
+    1. INSERT row với count=0 nếu chưa tồn tại
+    2. UPDATE count+1 CHỈ KHI count < limit (atomic trong transaction WAL)
+    3. rowcount==0 → đã chạm giới hạn → trả False
     """
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT count FROM rate_limits WHERE key=? AND type=? AND date=?",
-            (key, kind, date),
-        ).fetchone()
-        count = row["count"] if row else 0
-        if count >= limit:
-            return False
         conn.execute("""
-            INSERT INTO rate_limits (key, type, date, count) VALUES (?, ?, ?, 1)
-            ON CONFLICT(key, type, date) DO UPDATE SET count = count + 1
+            INSERT INTO rate_limits (key, type, date, count) VALUES (?, ?, ?, 0)
+            ON CONFLICT(key, type, date) DO NOTHING
         """, (key, kind, date))
-    return True
+        cur = conn.execute("""
+            UPDATE rate_limits SET count = count + 1
+            WHERE key=? AND type=? AND date=? AND count < ?
+        """, (key, kind, date, limit))
+    return cur.rowcount > 0
 
 
 def get_daily_rate(key: str, kind: str, date: str) -> int:
