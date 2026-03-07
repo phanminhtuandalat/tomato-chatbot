@@ -10,7 +10,8 @@ import time
 from datetime import datetime
 import httpx
 from app.config import (
-    OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_MODEL_FAST,
+    OPENROUTER_API_KEY, OPENROUTER_API_KEY_2,
+    OPENROUTER_MODEL, OPENROUTER_MODEL_FAST,
     MAX_DAILY_SONNET_CALLS, MAX_DAILY_HAIKU_CALLS,
 )
 
@@ -165,46 +166,62 @@ async def _call(messages: list[dict], model: str = OPENROUTER_MODEL_FAST,
     # Kiểm tra cost cap trước khi gọi API
     _check_cost_cap(model)
 
+    # Thử primary key trước, fallback sang secondary key khi auth/quota lỗi
+    api_keys = [OPENROUTER_API_KEY]
+    if OPENROUTER_API_KEY_2:
+        api_keys.append(OPENROUTER_API_KEY_2)
+
     last_error: LLMError | None = None
-    for attempt in range(2):
-        if attempt == 1:
-            await asyncio.sleep(1.0)  # Chờ 1s trước khi retry
 
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers=_headers(),
-                    json={"model": model, "max_tokens": max_tokens, "messages": messages},
-                )
-        except httpx.TimeoutException:
-            last_error = LLMError("timeout")
-            log.warning("[LLM] Timeout attempt %d/%d", attempt + 1, 2)
-            continue
-        except httpx.ConnectError:
-            raise LLMError("connect")
+    for key_idx, api_key in enumerate(api_keys):
+        for attempt in range(2):  # 2 lần thử mỗi key (retry server/timeout)
+            if attempt == 1:
+                await asyncio.sleep(1.0)
 
-        if response.status_code == 401:
-            raise LLMError("auth")
-        if response.status_code in (402, 429):
-            raise LLMError("quota")
-        if response.status_code >= 500:
-            last_error = LLMError("server")
-            log.warning("[LLM] Server error %s attempt %d/%d", response.status_code, attempt + 1, 2)
-            continue
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://chatbot-ca-chua.app",
+                            "X-Title": "Chatbot Ca Chua",
+                        },
+                        json={"model": model, "max_tokens": max_tokens, "messages": messages},
+                    )
+            except httpx.TimeoutException:
+                last_error = LLMError("timeout")
+                log.warning("[LLM] key%d timeout attempt%d", key_idx + 1, attempt + 1)
+                continue
+            except httpx.ConnectError:
+                raise LLMError("connect")
 
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError:
-            log.error("OpenRouter HTTP %s: %s", response.status_code, response.text[:500])
-            raise LLMError("http")
+            if response.status_code == 401:
+                last_error = LLMError("auth")
+                log.warning("[LLM] key%d auth failed — thử key tiếp theo", key_idx + 1)
+                break  # thử key tiếp theo
+            if response.status_code in (402, 429):
+                last_error = LLMError("quota")
+                log.warning("[LLM] key%d quota exceeded — thử key tiếp theo", key_idx + 1)
+                break  # thử key tiếp theo
+            if response.status_code >= 500:
+                last_error = LLMError("server")
+                log.warning("[LLM] key%d server %s attempt%d", key_idx + 1, response.status_code, attempt + 1)
+                continue
 
-        try:
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError):
-            log.error("OpenRouter response thiếu choices: %s", response.text[:500])
-            raise LLMError("response")
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError:
+                log.error("OpenRouter HTTP %s: %s", response.status_code, response.text[:500])
+                raise LLMError("http")
+
+            try:
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError):
+                log.error("OpenRouter response thiếu choices: %s", response.text[:500])
+                raise LLMError("response")
 
     raise last_error or LLMError("server")
 

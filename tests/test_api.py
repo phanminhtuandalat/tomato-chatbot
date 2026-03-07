@@ -134,12 +134,18 @@ def test_admin_duplicate_code(client):
     assert r.json()["ok"] is False
 
 
+def _reset_rate_state():
+    """Reset cả in-memory per-minute log lẫn DB daily counters."""
+    import app.routers.chat as chat_router
+    from app.database import get_conn
+    chat_router._request_log.clear()
+    with get_conn() as conn:
+        conn.execute("DELETE FROM rate_limits")
+
+
 def test_rate_limit_per_minute(client):
     """21 requests liên tiếp từ cùng device → request thứ 21 bị chặn."""
-    import app.routers.chat as chat_router
-    chat_router._request_log.clear()
-    chat_router._daily_log.clear()
-    chat_router._ip_daily_log.clear()
+    _reset_rate_state()
 
     for i in range(20):
         client.post("/api/chat", json={"message": f"test {i}"})
@@ -149,10 +155,7 @@ def test_rate_limit_per_minute(client):
 
 def test_daily_limit(client):
     """Sau 5 câu hỏi miễn phí phải trả QUOTA_EXCEEDED."""
-    import app.routers.chat as chat_router
-    chat_router._request_log.clear()
-    chat_router._daily_log.clear()
-    chat_router._ip_daily_log.clear()
+    _reset_rate_state()
 
     for i in range(5):
         client.post("/api/chat", json={"message": f"daily {i}"})

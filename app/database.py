@@ -332,8 +332,10 @@ def get_analytics() -> dict:
             "SELECT ts, question, has_image FROM questions ORDER BY id DESC LIMIT 20"
         ).fetchall()
 
-        # Top từ khoá (đếm tần suất từ)
-        all_questions = conn.execute("SELECT question FROM questions").fetchall()
+        # Top từ khoá (đếm tần suất từ — chỉ lấy 10k gần nhất để tránh O(n) khi DB lớn)
+        all_questions = conn.execute(
+            "SELECT question FROM questions ORDER BY id DESC LIMIT 10000"
+        ).fetchall()
 
     # Tính từ khoá phổ biến
     import unicodedata, re
@@ -375,7 +377,10 @@ def get_flywheel_data() -> dict:
             LIMIT 15
         """).fetchall()
 
-        all_qs = conn.execute("SELECT question FROM questions").fetchall()
+        # Chỉ sample 10k gần nhất — đủ để phát hiện gaps, tránh O(n) khi DB lớn
+        all_qs = conn.execute(
+            "SELECT question FROM questions ORDER BY id DESC LIMIT 10000"
+        ).fetchall()
 
     stop = {"tôi","bị","như","thế","nào","là","có","và","của","để","cho","khi",
             "với","trong","từ","đến","được","một","này","không","hay","gì",
