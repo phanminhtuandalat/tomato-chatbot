@@ -153,6 +153,44 @@ function addBotMessage(text, question = '', submissionId = null, showActiveFeedb
   scrollBottom();
 }
 
+/* ── Typing speed queue — drain chars ở tốc độ tự nhiên như ChatGPT ── */
+class TypingQueue {
+  constructor(bubble) {
+    this.bubble   = bubble;
+    this.queue    = '';
+    this.text     = '';
+    this.timerId  = null;
+    this.RATE     = 3;    // chars per tick
+    this.INTERVAL = 18;   // ms per tick → ~165 chars/s (tự nhiên)
+  }
+
+  _tick() {
+    if (!this.queue) { this.timerId = null; return; }
+    // Thêm chút jitter để cảm giác tự nhiên hơn
+    const n = this.RATE + (Math.random() < 0.3 ? 1 : 0);
+    this.text += this.queue.slice(0, n);
+    this.queue  = this.queue.slice(n);
+    this.bubble.innerHTML = renderBot(this.text);
+    scrollBottom();
+    this.timerId = setTimeout(() => this._tick(), this.INTERVAL);
+  }
+
+  add(chunk) {
+    this.queue += chunk;
+    if (!this.timerId) this.timerId = setTimeout(() => this._tick(), this.INTERVAL);
+  }
+
+  flush() {
+    clearTimeout(this.timerId);
+    this.timerId = null;
+    this.text += this.queue;
+    this.queue = '';
+    this.bubble.innerHTML = renderBot(this.text);
+    scrollBottom();
+    return this.text;
+  }
+}
+
 /* ── Streaming helpers ── */
 function _createStreamingBubble() {
   const msgId = 'msg-' + Date.now();
@@ -664,16 +702,13 @@ async function sendMessage() {
 
     removeTyping();
     const { bubble, finalize } = _createStreamingBubble();
-    let fullText = '';
+    const typer = new TypingQueue(bubble);
 
     await _readStream(res, {
-      onChunk(chunk) {
-        fullText += chunk;
-        bubble.innerHTML = renderBot(fullText);
-        scrollBottom();
-      },
+      onChunk(chunk) { typer.add(chunk); },
       onDone(submissionId) {
-        bubble.innerHTML = renderBot(fullText);
+        const fullText = typer.flush();
+        bubble.classList.remove('streaming');
         finalize(fullText, text, submissionId);
         updateQuota();
         if (!firstMessageSent) {
@@ -684,6 +719,7 @@ async function sendMessage() {
         }
       },
       onError(msg) {
+        typer.flush();
         bubble.classList.remove('streaming');
         bubble.innerHTML = renderBot(msg || 'Lỗi không xác định.');
       },
