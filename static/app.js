@@ -242,7 +242,96 @@ function addCorrectionBotMessage(text) {
   scrollBottom();
 }
 
-function endCorrectionMode() { correctionState = null; hideCorrectionBanner(); }
+function endCorrectionMode() {
+  correctionState = null;
+  hideCorrectionBanner();
+  inputEl.placeholder = 'Nhắn tin hoặc gửi ảnh sâu bệnh...';
+}
+
+/* ── Conversational Correction Chat ── */
+
+async function _startCorrectionChat(initialMsg) {
+  // Chuyển sang chat mode: giữ correctionState, thêm turns
+  correctionState.chatMode = true;
+  correctionState.turns = [];
+
+  // Hiện tin nhắn đầu tiên của user như bubble bình thường
+  addUserMessage(initialMsg);
+
+  try {
+    const data = await _callCorrectChat(initialMsg);
+    removeTyping();
+    _handleCorrectionChatResponse(data);
+  } catch {
+    removeTyping();
+    addCorrectionBotMessage('⚠️ Mất kết nối. Vui lòng thử lại.');
+    endCorrectionMode();
+  }
+}
+
+async function sendCorrectionChatTurn(userMsg) {
+  if (!correctionState?.chatMode) return false;
+  addUserMessage(userMsg);
+  showTyping();
+  correctionState.turns.push({ role: 'user', content: userMsg });
+  try {
+    const data = await _callCorrectChat(userMsg);
+    removeTyping();
+    _handleCorrectionChatResponse(data);
+  } catch {
+    removeTyping();
+    addCorrectionBotMessage('⚠️ Mất kết nối. Vui lòng thử lại.');
+  }
+  return true;
+}
+
+async function _callCorrectChat(userMsg) {
+  const res = await fetch('/api/correct-chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question:      correctionState.question,
+      wrong_answer:  correctionState.wrongAnswer,
+      user_message:  userMsg,
+      turns:         correctionState.turns.slice(-8),
+      submission_id: correctionState.submissionId,
+    }),
+  });
+  if (!res.ok) throw new Error('server');
+  return res.json();
+}
+
+function _handleCorrectionChatResponse(data) {
+  const { action, reply, corrected_answer, points, questions_added, current_points } = data;
+
+  if (action === 'save' && corrected_answer) {
+    // Lưu thành công — hiện câu trả lời đã cập nhật
+    const wrap = document.createElement('div');
+    wrap.className = 'msg-bot msg-corrected';
+    wrap.innerHTML = `<div class="bot-avatar">🍅</div><div class="bubble">
+      <span class="corrected-badge">✏️ Câu trả lời đã được cập nhật</span><br>${esc(corrected_answer)}</div>`;
+    messagesEl.appendChild(wrap);
+    scrollBottom();
+    if (points) showBonusToast(points, questions_added || 0, 'correction_verified', current_points, 20);
+    endCorrectionMode();
+    return;
+  }
+
+  if (action === 'cancel') {
+    if (reply) addCorrectionBotMessage(reply);
+    endCorrectionMode();
+    return;
+  }
+
+  // action === 'continue' — hỏi thêm
+  if (reply) {
+    addCorrectionBotMessage(reply);
+    correctionState.turns.push({ role: 'assistant', content: reply });
+  }
+  // Gợi ý user gõ tiếp
+  inputEl.placeholder = '✍️ Trả lời để làm rõ thêm...';
+  inputEl.focus();
+}
 
 function cancelCorrection() {
   if (correctionState) addCorrectionBotMessage('Đã hủy. Cảm ơn bà con đã phản hồi!');
@@ -401,6 +490,7 @@ async function submitCorrectionForm(msgId) {
   if (!formDiv) return;
 
   const answers = [];
+  let hasFreeText = false;  // true nếu user gõ tay vào ô nhập liệu
   formDiv.querySelectorAll('.cf-question').forEach(qDiv => {
     const label = qDiv.querySelector('.cf-label')?.textContent || '';
     const qid   = qDiv.dataset.qid;
@@ -409,13 +499,16 @@ async function submitCorrectionForm(msgId) {
     if (selOpt) {
       let val = selOpt.textContent.trim();
       if (val === 'Khác') {
-        // Check dynamic sub-options first
         const selSub = qDiv.querySelector('.cf-sub-opt.selected');
         if (selSub) {
           val = selSub.textContent.trim();
-          if (val === 'Nhập tay') val = document.getElementById(`cf-manual-${qid}`)?.value.trim() || '';
+          if (val === 'Nhập tay') {
+            val = document.getElementById(`cf-manual-${qid}`)?.value.trim() || '';
+            if (val) hasFreeText = true;
+          }
         } else {
           val = document.getElementById(`cf-other-${qid}`)?.value.trim() || '';
+          if (val) hasFreeText = true;
         }
       }
       if (val) answers.push(`${label}: ${val}`);
@@ -424,7 +517,10 @@ async function submitCorrectionForm(msgId) {
     const selYn = qDiv.querySelector('.cf-yn.selected');
     if (selYn) { answers.push(`${label}: ${selYn.textContent.replace(/[✅❌]/g,'').trim()}`); return; }
     const inp = qDiv.querySelector('.cf-input');
-    if (inp?.value.trim()) answers.push(`${label}: ${inp.value.trim()}`);
+    if (inp?.value.trim()) {
+      answers.push(`${label}: ${inp.value.trim()}`);
+      hasFreeText = true;  // type="text" / type="number" là free-text
+    }
   });
 
   if (!answers.length) { addCorrectionBotMessage('⚠️ Bà con chưa điền thông tin nào.'); return; }
@@ -432,9 +528,17 @@ async function submitCorrectionForm(msgId) {
   formDiv.querySelectorAll('button, input').forEach(el => el.disabled = true);
   const submitBtn = formDiv.querySelector('.cf-submit-btn');
   if (submitBtn) submitBtn.textContent = 'Đang kiểm tra...';
+
+  // Nếu có free-text → chuyển sang conversational mode để làm rõ thêm
+  if (hasFreeText) {
+    showTyping();
+    await _startCorrectionChat(answers.join('\n'));
+    return;
+  }
+
+  // Không có free-text (toàn trắc nghiệm) → one-shot verify như cũ
   showTyping();
 
-  // Sau 8 giây chưa xong → báo đang xử lý để user không lo
   const progressTimer = setTimeout(() => {
     removeTyping(); showTyping();
     const hint = document.createElement('div');
@@ -772,6 +876,16 @@ async function sendMessage() {
   const image = pendingImage;
   if (!text && !image) return;
   if (sendBtn.disabled) return;
+
+  // Nếu đang trong correction chat mode → route sang đó, không gửi chat thường
+  if (correctionState?.chatMode && text) {
+    inputEl.value = ''; inputEl.style.height = 'auto';
+    sendBtn.disabled = true;
+    await sendCorrectionChatTurn(text);
+    sendBtn.disabled = false;
+    inputEl.focus();
+    return;
+  }
 
   inputEl.value = ''; inputEl.style.height = 'auto';
   removeImage(); sendBtn.disabled = true;
