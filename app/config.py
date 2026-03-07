@@ -31,6 +31,10 @@ OPENROUTER_MODEL_VISION = _get("OPENROUTER_MODEL_VISION", "google/gemini-2.5-fla
 # Weather (tuỳ chọn — OpenWeatherMap free tier)
 OPENWEATHER_API_KEY = _get("OPENWEATHER_API_KEY")
 
+# Web search (tuỳ chọn — Tavily: 1000 free searches/tháng tại tavily.com)
+# Nếu không có key → fallback DuckDuckGo Instant Answer (giới hạn hơn)
+TAVILY_API_KEY = _get("TAVILY_API_KEY")
+
 # Zalo (tuỳ chọn — chỉ cần khi dùng Zalo OA)
 ZALO_OA_ACCESS_TOKEN = _get("ZALO_OA_ACCESS_TOKEN")
 ZALO_APP_SECRET      = _get("ZALO_APP_SECRET")

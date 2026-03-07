@@ -262,7 +262,7 @@ function _createStreamingBubble() {
   return { bubble, finalize, msgId };
 }
 
-async function _readStream(res, { onChunk, onDone, onError, onSuggestions }) {
+async function _readStream(res, { onChunk, onDone, onError, onSuggestions, onTool }) {
   const reader  = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
@@ -283,10 +283,11 @@ async function _readStream(res, { onChunk, onDone, onError, onSuggestions }) {
         else if (evt.t === 'done')        { doneReceived = true; onDone(evt.submission_id, evt.sources || []); }
         else if (evt.t === 'error')       onError(evt.msg);
         else if (evt.t === 'suggestions') onSuggestions?.(evt.q || []);
+        else if (evt.t === 'tool')        onTool?.(evt.name, evt.q);
       } catch {}
     }
   }
-  if (!doneReceived) onDone(null, []);  // fallback: stream closed trước khi nhận done event
+  if (!doneReceived) onDone(null, []);
 }
 
 function showTyping() {
@@ -756,6 +757,11 @@ async function sendMessage() {
     const typer = new TypingQueue(bubble);
 
     await _readStream(res, {
+      onTool(name, query) {
+        const labels = { web_search: '🔍 Đang tìm kiếm', calculate: '🧮 Đang tính toán' };
+        const label  = (labels[name] || '⚙️ Đang xử lý') + (query ? ` "${query}"` : '') + '…';
+        bubble.innerHTML = `<span class="tool-indicator">${label}</span>`;
+      },
       onChunk(chunk) { typer.add(chunk); },
       onDone(submissionId, sources) {
         const fullText = typer.flush();

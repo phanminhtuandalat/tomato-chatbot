@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services import llm, rag as rag_module
+from app.services import llm, rag as rag_module, tools as tools_module
 from app.services.llm import LLMError
 from app.services.embeddings import vector_search, EMBED_ENABLED
 from app.database import (
@@ -249,9 +249,42 @@ async def api_chat_stream(req: ChatRequest, request: Request):
 
     async def event_gen():
         full_answer = []
+
+        # ── Phase 0: Tool execution ──────────────────────────────────────────
+        effective_context = context
+        if question and not image:
+            tool_parts: list[str] = []
+
+            # Web search — khi câu hỏi cần thông tin mới/thị trường
+            if tools_module.needs_search(question):
+                search_query = f"{question} cà chua Việt Nam"
+                yield f"data: {_json.dumps({'t': 'tool', 'name': 'web_search', 'q': search_query[:80]}, ensure_ascii=False)}\n\n"
+                try:
+                    result = await tools_module.web_search(search_query)
+                    if result:
+                        tool_parts.append(f"[Kết quả tìm kiếm internet]\n{result}")
+                except Exception as e:
+                    log.warning("web_search error: %s", e)
+
+            # Calculator — khi câu hỏi có phép tính cụ thể
+            if tools_module.needs_calculate(question):
+                expr = tools_module.extract_expression(question)
+                if expr:
+                    yield f"data: {_json.dumps({'t': 'tool', 'name': 'calculate', 'q': expr}, ensure_ascii=False)}\n\n"
+                    calc_result = tools_module.calculate(expr)
+                    tool_parts.append(f"[Kết quả tính toán]\n{calc_result}")
+
+            if tool_parts:
+                tool_context = "\n\n".join(tool_parts)
+                effective_context = (
+                    f"{tool_context}\n\n---\nKiến thức nội bộ:\n{context}"
+                    if context else tool_context
+                )
+
+        # ── Phase 1: Stream LLM answer ───────────────────────────────────────
         try:
             async for chunk in llm.chat_stream(
-                question=question, context=context, image_base64=image,
+                question=question, context=effective_context, image_base64=image,
                 history=history, region=region_name, weather=weather,
             ):
                 full_answer.append(chunk)
