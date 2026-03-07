@@ -180,6 +180,20 @@ async def delete_doc(req: DeleteRequest, _: None = Depends(require_admin)):
     return JSONResponse({"ok": True})
 
 
+@router.get("/admin/embed-status")
+async def embed_status(_: None = Depends(require_admin)):
+    """Kiểm tra trạng thái embedding — debug."""
+    from app.services.embeddings import EMBED_ENABLED, EMBED_MODEL, _API_KEY
+    from app.database import get_conn
+    with get_conn() as conn:
+        chunk_count = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+    return JSONResponse({
+        "embed_enabled": EMBED_ENABLED,
+        "model": EMBED_MODEL,
+        "has_key": bool(_API_KEY),
+        "indexed_chunks": chunk_count,
+    })
+
 @router.post("/admin/reindex")
 async def reindex_all(_: None = Depends(require_admin)):
     """Tạo lại toàn bộ embeddings từ knowledge base hiện tại."""
