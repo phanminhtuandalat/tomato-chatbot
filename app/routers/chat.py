@@ -378,10 +378,11 @@ async def api_quota(request: Request):
     premium   = get_premium_quota(device_id)
     pts       = get_points(device_id)
     return JSONResponse({
-        "free":    {"requests": max(0, DAILY_LIMIT - used_q), "images": max(0, IMAGE_LIMIT - used_i)},
-        "premium": premium,
-        "points":  {"current": pts["current_points"], "total_earned": pts["total_earned"],
-                    "per_question": POINTS_PER_QUESTION},
+        "free":      {"requests": max(0, DAILY_LIMIT - used_q), "images": max(0, IMAGE_LIMIT - used_i)},
+        "premium":   premium,
+        "points":    {"current": pts["current_points"], "total_earned": pts["total_earned"],
+                      "per_question": POINTS_PER_QUESTION},
+        "device_id": device_id,
     })
 
 @router.post("/api/feedback")

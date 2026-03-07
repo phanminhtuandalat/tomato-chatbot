@@ -267,6 +267,30 @@ async def gift_quota(req: GiftQuotaRequest, _: None = Depends(require_admin)):
             """, (req.device_id.strip(), req.images))
     return JSONResponse({"ok": True})
 
+@router.get("/admin/inspect-code/{code}")
+async def inspect_code(code: str, _: None = Depends(require_admin)):
+    """Debug: xem trạng thái thực tế của code trong DB."""
+    from app.database import get_conn, get_premium_quota
+    code_up = code.upper()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT code, requests, images, max_uses, used_count, created_at, note, expires_at FROM premium_codes WHERE code=?",
+            (code_up,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Code không tồn tại")
+        redemptions = conn.execute(
+            "SELECT ip, ts FROM code_redemptions WHERE code=? ORDER BY ts DESC", (code_up,)
+        ).fetchall()
+    result = dict(row)
+    result["redemptions"] = [{"device_id": r["ip"], "ts": r["ts"]} for r in redemptions]
+    result["quota_per_device"] = {}
+    for r in redemptions:
+        q = get_premium_quota(r["ip"])
+        result["quota_per_device"][r["ip"]] = q
+    result["redeemable"] = result["used_count"] < result["max_uses"]
+    return JSONResponse(result)
+
 @router.get("/admin/analytics")
 async def analytics_report(_: None = Depends(require_admin)):
     return JSONResponse(get_analytics())

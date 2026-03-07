@@ -187,7 +187,7 @@ async function loadCodes() {
     const statusColor = full ? '#ef5350' : (c.used_count > 0 ? '#f57c00' : '#2e7d32');
     const statusText = full ? `Hết lượt (${c.used_count}/${c.max_uses})` : (c.used_count > 0 ? `${c.used_count}/${c.max_uses} lượt` : 'Chưa dùng');
     const ips = c.redemptions.map(r =>
-      `<div style="font-size:11px;color:#aaa;padding-left:4px;">· ${r.ip} <span style="color:#bbb;">${r.ts}</span></div>`
+      `<div style="font-size:11px;color:#aaa;padding-left:4px;">· <span style="font-family:monospace;cursor:pointer;" onclick="navigator.clipboard.writeText('${r.ip}');this.style.color='#2e7d32';" title="Click để copy device_id">${r.ip.slice(0,16)}…</span> <span style="color:#bbb;">${r.ts}</span></div>`
     ).join('');
     return `
     <div class="doc-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
@@ -199,6 +199,7 @@ async function loadCodes() {
       ${ips}
       <div style="display:flex;gap:6px;margin-top:4px;">
         ${full ? `<button onclick="resetCode('${c.code}')" style="font-size:11px;padding:3px 10px;border:1px solid #f57c00;border-radius:12px;background:#fff8e1;color:#e65100;cursor:pointer;">↺ Reset lượt</button>` : ''}
+        <button onclick="inspectCode('${c.code}')" style="font-size:11px;padding:3px 10px;border:1px solid #90caf9;border-radius:12px;background:#e3f2fd;color:#1565c0;cursor:pointer;">🔍 Debug</button>
         <button onclick="deleteCode('${c.code}')" style="font-size:11px;padding:3px 10px;border:1px solid #ef9a9a;border-radius:12px;background:#ffebee;color:#c62828;cursor:pointer;">✕ Xóa</button>
       </div>
     </div>`;
@@ -217,6 +218,16 @@ async function deleteCode(code) {
   if (!confirm(`Xóa mã ${code}? Hành động này không thể hoàn tác.`)) return;
   const res = await fetch(`/admin/premium-code/${code}`, { method: 'DELETE' });
   if (res.ok) loadCodes();
+}
+
+async function inspectCode(code) {
+  const res = await fetch(`/admin/inspect-code/${code}`);
+  const d = await res.json();
+  const redemptionLines = (d.redemptions || []).map(r => {
+    const q = (d.quota_per_device || {})[r.device_id] || {};
+    return `  • device_id: ${r.device_id}\n    Lúc: ${r.ts} | Quota còn: ${q.requests ?? '?'} câu, ${q.images ?? '?'} ảnh`;
+  }).join('\n') || '  (chưa ai dùng)';
+  alert(`=== DEBUG: ${code} ===\nused_count: ${d.used_count} / max_uses: ${d.max_uses}\nCó thể dùng: ${d.redeemable ? 'CÓ' : 'KHÔNG'}\n\nLượt dùng:\n${redemptionLines}\n\nExpires: ${d.expires_at || 'không giới hạn'}`);
 }
 
 async function giftQuota() {

@@ -589,16 +589,23 @@ async function submitCode() {
       msg.style.color = '#2e7d32';
       msg.textContent = `✓ Kích hoạt thành công! +${data.requests} câu hỏi${data.images ? ` · +${data.images} ảnh` : ''}.`;
       setTimeout(closeRedeemModal, 2000);
-    } else { msg.style.color = '#ef5350'; msg.textContent = '✗ ' + (data.detail || 'Mã không hợp lệ'); }
+      updateQuota();
+    } else {
+      const errText = data.detail || 'Mã không hợp lệ';
+      msg.style.color = '#ef5350';
+      msg.innerHTML = `✗ ${errText}` + (_deviceId ? `<br><span style="font-size:11px;color:#999;">ID thiết bị: <span style="font-family:monospace;cursor:pointer;" onclick="navigator.clipboard.writeText('${_deviceId}');this.style.color='#2e7d32';" title="Click để copy">${_deviceId.slice(0,20)}…</span> (nhờ admin tặng trực tiếp)</span>` : '');
+    }
   } catch { msg.style.color = '#ef5350'; msg.textContent = '✗ Lỗi kết nối'; }
 }
 
 /* ── Quota badge ── */
+let _deviceId = null;
 async function updateQuota() {
   try {
     const res = await fetch('/api/quota');
     if (!res.ok) return;
-    const { free, premium, points } = await res.json();
+    const { free, premium, points, device_id } = await res.json();
+    if (device_id) _deviceId = device_id;
     const badge = document.getElementById('quotaBadge');
     const totalPremium = premium.requests || 0;
     const pts = points?.current || 0;
