@@ -357,6 +357,34 @@ body {
 .md-content th, .md-content td { border: 1px solid #c8e6c9; padding: 6px 10px; text-align: left; white-space: nowrap; }
 .md-content th { background: #e8f5e9; font-weight: 700; color: #2e7d32; }
 
+/* ── Sources ── */
+.sources-wrap {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 5px; margin-top: 6px; margin-left: 40px;
+}
+.sources-label { font-size: 11px; color: #888; font-weight: 500; white-space: nowrap; }
+.source-chip {
+  font-size: 11px; color: #1b5e20; background: #e8f5e9;
+  border: 1px solid #c8e6c9; border-radius: 12px;
+  padding: 2px 8px; white-space: nowrap;
+}
+
+/* ── Câu hỏi gợi ý (Perplexity style) ── */
+.suggestions-wrap {
+  margin: 8px 0 4px 40px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.sugg-label { font-size: 12px; color: #888; font-weight: 500; margin-bottom: 2px; }
+.sugg-chip {
+  text-align: left; background: #fff; border: 1.5px solid #c8e6c9;
+  border-radius: 8px; padding: 7px 12px;
+  font-size: 13px; color: #1b5e20; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  display: flex; align-items: center; gap: 6px;
+}
+.sugg-chip::before { content: '→'; font-size: 12px; color: #81c784; flex-shrink: 0; }
+.sugg-chip:hover { background: #f1f8f1; border-color: #81c784; }
+
 /* ── Nút đánh giá ── */
 .feedback-row { display: flex; gap: 6px; margin-top: 6px; margin-left: 40px; }
 .fb-btn {

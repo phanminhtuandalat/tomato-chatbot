@@ -191,6 +191,49 @@ class TypingQueue {
   }
 }
 
+/* ── Source & suggestion helpers ── */
+const _SOURCE_NAMES = {
+  benh_hai_ca_chua:         'Bệnh hại cà chua',
+  faq_thuong_gap:           'FAQ thường gặp',
+  ky_thuat_trong:           'Kỹ thuật trồng',
+  nhan_dang_sau_benh_qua_anh: 'Nhận dạng sâu bệnh',
+  phan_bon_ca_chua:         'Phân bón cà chua',
+  roi_loan_sinh_ly:         'Rối loạn sinh lý',
+  sau_hai_ca_chua:          'Sâu hại cà chua',
+  seasonal_calendar:        'Lịch mùa vụ',
+  tomato_knowledge:         'Kiến thức cà chua',
+};
+
+function _renderSources(sources) {
+  if (!sources?.length) return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'sources-wrap';
+  wrap.innerHTML = '<span class="sources-label">📚 Nguồn tham khảo:</span>';
+  sources.forEach(s => {
+    const chip = document.createElement('span');
+    chip.className = 'source-chip';
+    chip.textContent = _SOURCE_NAMES[s.source] || s.source.replace(/_/g, ' ');
+    wrap.appendChild(chip);
+  });
+  return wrap;
+}
+
+function _showSuggestions(afterEl, questions) {
+  if (!questions?.length || !afterEl) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'suggestions-wrap';
+  wrap.innerHTML = '<div class="sugg-label">💡 Bà con có thể hỏi tiếp:</div>';
+  questions.forEach(q => {
+    const btn = document.createElement('button');
+    btn.className = 'sugg-chip';
+    btn.textContent = q;
+    btn.onclick = () => { inputEl.value = q; sendMessage(); };
+    wrap.appendChild(btn);
+  });
+  afterEl.after(wrap);
+  scrollBottom();
+}
+
 /* ── Streaming helpers ── */
 function _createStreamingBubble() {
   const msgId = 'msg-' + Date.now();
@@ -201,9 +244,14 @@ function _createStreamingBubble() {
   scrollBottom();
   const bubble = div.querySelector('.bubble');
 
-  function finalize(answerText, questionText, submissionId) {
+  function finalize(answerText, questionText, submissionId, sources) {
     bubble.classList.remove('streaming');
     bubble.innerHTML = renderBot(answerText);
+
+    // Render sources ngay dưới bubble
+    const sourcesEl = _renderSources(sources);
+    if (sourcesEl) div.appendChild(sourcesEl);
+
     const showActive = !activeFeedbackShownToday && !!questionText
       && !answerText.startsWith('⚠️') && !answerText.startsWith('Lỗi') && !answerText.startsWith('Hệ thống');
     _appendFeedback(msgId, answerText, questionText, submissionId, showActive);
@@ -211,10 +259,10 @@ function _createStreamingBubble() {
     scrollBottom();
   }
 
-  return { bubble, finalize };
+  return { bubble, finalize, msgId };
 }
 
-async function _readStream(res, { onChunk, onDone, onError }) {
+async function _readStream(res, { onChunk, onDone, onError, onSuggestions }) {
   const reader  = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
@@ -231,13 +279,14 @@ async function _readStream(res, { onChunk, onDone, onError }) {
       if (!raw) continue;
       try {
         const evt = JSON.parse(raw);
-        if      (evt.t === 'c')     onChunk(evt.v);
-        else if (evt.t === 'done')  { doneReceived = true; onDone(evt.submission_id); }
-        else if (evt.t === 'error') onError(evt.msg);
+        if      (evt.t === 'c')           onChunk(evt.v);
+        else if (evt.t === 'done')        { doneReceived = true; onDone(evt.submission_id, evt.sources || []); }
+        else if (evt.t === 'error')       onError(evt.msg);
+        else if (evt.t === 'suggestions') onSuggestions?.(evt.q || []);
       } catch {}
     }
   }
-  if (!doneReceived) onDone(null);  // fallback: stream closed trước khi nhận done event
+  if (!doneReceived) onDone(null, []);  // fallback: stream closed trước khi nhận done event
 }
 
 function showTyping() {
@@ -703,15 +752,15 @@ async function sendMessage() {
     }
 
     removeTyping();
-    const { bubble, finalize } = _createStreamingBubble();
+    const { bubble, finalize, msgId } = _createStreamingBubble();
     const typer = new TypingQueue(bubble);
 
     await _readStream(res, {
       onChunk(chunk) { typer.add(chunk); },
-      onDone(submissionId) {
+      onDone(submissionId, sources) {
         const fullText = typer.flush();
         bubble.classList.remove('streaming');
-        finalize(fullText, text, submissionId);
+        finalize(fullText, text, submissionId, sources);
         updateQuota();
         if (!firstMessageSent) {
           firstMessageSent = true;
@@ -724,6 +773,10 @@ async function sendMessage() {
         typer.flush();
         bubble.classList.remove('streaming');
         bubble.innerHTML = renderBot(msg || 'Lỗi không xác định.');
+      },
+      onSuggestions(questions) {
+        const feedbackEl = document.getElementById(msgId);
+        _showSuggestions(feedbackEl, questions);
       },
     });
 

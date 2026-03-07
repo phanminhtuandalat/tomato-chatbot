@@ -84,7 +84,7 @@ MAX_QUESTION_CHARS  = 400   # ~100 token
 MAX_CONTEXT_CHARS   = 1800  # ~450 token (4 chunks rút gọn)
 MAX_HISTORY_MSGS    = 10    # 5 lượt gần nhất
 MAX_HISTORY_CHARS   = 800   # mỗi message ~200 từ — đủ giữ ngữ cảnh trả lời nông nghiệp
-MAX_TOKENS_RESPONSE = 1500  # đủ cho câu trả lời đầy đủ: triệu chứng + chẩn đoán + thuốc + liều lượng
+MAX_TOKENS_RESPONSE = 2048  # đủ cho câu trả lời đầy đủ: triệu chứng + chẩn đoán + thuốc + liều lượng
 MAX_IMAGE_PX        = 768   # resize ảnh xuống tối đa 768px, JPEG q=80
 
 
@@ -469,3 +469,28 @@ async def extract_from_image(image_base64: str) -> str:
         {"type": "text", "text": EXTRACT_PROMPT},
     ]}]
     return await _call(messages, model=OPENROUTER_MODEL_VISION, max_tokens=2048)
+
+
+async def suggest_questions(question: str, answer: str) -> list[str]:
+    """Gợi ý 3 câu hỏi tiếp theo dựa trên câu hỏi và câu trả lời hiện tại."""
+    prompt = (
+        f"Dựa trên cuộc hội thoại về trồng cà chua dưới đây, hãy đề xuất đúng 3 câu hỏi tiếp theo "
+        f"mà bà con nông dân có thể muốn hỏi. Câu hỏi phải cụ thể, thực tế, ngắn gọn (≤15 từ).\n"
+        f"Chỉ trả về 3 câu hỏi, mỗi câu một dòng, không đánh số, không giải thích.\n\n"
+        f"Câu hỏi: {question[:300]}\n"
+        f"Câu trả lời: {answer[:400]}"
+    )
+    try:
+        raw = await _call(
+            [{"role": "user", "content": prompt}],
+            model=OPENROUTER_MODEL_FAST,
+            max_tokens=120,
+        )
+        lines = [
+            l.strip().lstrip("-•–—·123456789. ").strip()
+            for l in raw.strip().splitlines()
+            if l.strip()
+        ]
+        return [l for l in lines if 5 < len(l) < 120][:3]
+    except Exception:
+        return []

@@ -88,36 +88,50 @@ class RAGService:
         with self._lock:
             self._load()
 
-    def search(self, query: str, top_k: int = 4) -> str:
+    def _rank(self, query: str, top_k: int = 4) -> list[tuple[float, dict]]:
+        """Trả về top_k chunks đã rank theo BM25/TF-IDF."""
         if not query.strip():
-            return ""
-
+            return []
         query_tokens = tokenize(query)
         if not query_tokens:
-            return ""
-
+            return []
         with self._lock:
             chunks = self._chunks
-            bm25 = self._bm25
-
+            bm25   = self._bm25
         if not chunks:
-            return ""
-
+            return []
         scores = _score(bm25, chunks, query_tokens)
-        # Lấy top_k chunks có điểm > 0
-        ranked = sorted(
+        return sorted(
             [(s, c) for s, c in zip(scores, chunks) if s > 0],
             key=lambda x: x[0],
             reverse=True,
         )[:top_k]
 
+    def search(self, query: str, top_k: int = 4) -> str:
+        ranked = self._rank(query, top_k)
         if not ranked:
             return ""
-
         return "\n\n---\n\n".join(
             f"[{c['source']}] {c['title']}\n{c['content']}"
             for _, c in ranked
         )
+
+    def search_with_meta(self, query: str, top_k: int = 4) -> tuple[str, list[dict]]:
+        """Như search() nhưng trả thêm danh sách nguồn tham khảo (đã dedup)."""
+        ranked = self._rank(query, top_k)
+        if not ranked:
+            return "", []
+        context = "\n\n---\n\n".join(
+            f"[{c['source']}] {c['title']}\n{c['content']}"
+            for _, c in ranked
+        )
+        seen: set[str] = set()
+        sources: list[dict] = []
+        for _, c in ranked:
+            if c["source"] not in seen:
+                seen.add(c["source"])
+                sources.append({"source": c["source"], "title": c["title"]})
+        return context, sources
 
     @property
     def chunk_count(self) -> int:

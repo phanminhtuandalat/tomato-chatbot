@@ -222,14 +222,23 @@ async def api_chat_stream(req: ChatRequest, request: Request):
         save_question(ts=_dt.now().isoformat(timespec="seconds"),
                       question=question, has_image=bool(image))
 
+    rag_sources: list[dict] = []
     if question:
         if EMBED_ENABLED:
             results = await vector_search(question)
-            context = "\n\n---\n\n".join(
-                f"[{r['source']}] {r['title']}\n{r['content']}" for r in results
-            ) if results else rag_module.rag.search(question)
+            if results:
+                context = "\n\n---\n\n".join(
+                    f"[{r['source']}] {r['title']}\n{r['content']}" for r in results
+                )
+                seen: set[str] = set()
+                for r in results:
+                    if r["source"] not in seen:
+                        seen.add(r["source"])
+                        rag_sources.append({"source": r["source"], "title": r["title"]})
+            else:
+                context, rag_sources = rag_module.rag.search_with_meta(question)
         else:
-            context = rag_module.rag.search(question)
+            context, rag_sources = rag_module.rag.search_with_meta(question)
     else:
         context = ""
 
@@ -275,7 +284,16 @@ async def api_chat_stream(req: ChatRequest, request: Request):
             except Exception:
                 pass
 
-        yield f"data: {_json.dumps({'t': 'done', 'submission_id': submission_id})}\n\n"
+        yield f"data: {_json.dumps({'t': 'done', 'submission_id': submission_id, 'sources': rag_sources}, ensure_ascii=False)}\n\n"
+
+        # Gợi ý câu hỏi tiếp theo (gửi sau done để không delay câu trả lời)
+        if question and not image:
+            try:
+                suggestions = await llm.suggest_questions(question, answer)
+                if suggestions:
+                    yield f"data: {_json.dumps({'t': 'suggestions', 'q': suggestions}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                log.debug("suggest_questions error: %s", e)
 
     return StreamingResponse(
         event_gen(),
