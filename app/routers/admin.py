@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
@@ -210,28 +210,42 @@ async def embed_status(_: None = Depends(require_admin)):
         "indexed_chunks": chunk_count,
     })
 
-@router.post("/admin/reindex")
-async def reindex_all(_: None = Depends(require_admin)):
-    """Tạo lại toàn bộ embeddings từ knowledge base hiện tại."""
-    if not EMBED_ENABLED:
-        return JSONResponse({"ok": False, "error": "Chưa cấu hình OPENAI_API_KEY hoặc OPENROUTER_API_KEY"})
-    total = 0
-    sources = 0
-    errors = []
-    for md_file in sorted(DATA_DIR.glob("*.md")):
+_reindex_status: dict = {"running": False, "done": 0, "total": 0, "errors": []}
+
+async def _do_reindex():
+    """Chạy nền — index toàn bộ .md files vào vector DB."""
+    import re as _re
+    global _reindex_status
+    md_files = sorted(DATA_DIR.glob("*.md"))
+    _reindex_status = {"running": True, "done": 0, "total": len(md_files), "errors": []}
+    for md_file in md_files:
         try:
             content = md_file.read_text(encoding="utf-8")
-            # Lấy doc title từ dòng H1 đầu tiên
-            import re as _re
             m = _re.match(r"# (.+)", content.lstrip())
             doc_title = m.group(1).strip() if m else md_file.stem.replace("_", " ").title()
-            n = await index_document(md_file.stem, doc_title, content)
-            if n > 0:
-                total += n
-                sources += 1
+            await index_document(md_file.stem, doc_title, content)
+            _reindex_status["done"] += 1
         except Exception as e:
-            errors.append(f"{md_file.name}: {e}")
-    return JSONResponse({"ok": True, "total": total, "sources": sources, "errors": errors})
+            _reindex_status["errors"].append(f"{md_file.name}: {e}")
+    _reindex_status["running"] = False
+
+@router.post("/admin/reindex")
+async def reindex_all(background_tasks, _: None = Depends(require_admin)):
+    """Tạo lại toàn bộ embeddings — chạy nền, không timeout."""
+    if not EMBED_ENABLED:
+        return JSONResponse({"ok": False, "error": "Chưa cấu hình OPENAI_API_KEY hoặc OPENROUTER_API_KEY"})
+    if _reindex_status.get("running"):
+        return JSONResponse({"ok": False, "error": f"Đang chạy: {_reindex_status['done']}/{_reindex_status['total']}"})
+    background_tasks.add_task(_do_reindex)
+    return JSONResponse({"ok": True, "total": len(list(DATA_DIR.glob("*.md"))),
+                         "message": "Đang chạy nền — kiểm tra /admin/reindex-status"})
+
+@router.get("/admin/reindex-status")
+async def reindex_status_check(_: None = Depends(require_admin)):
+    from app.database import get_conn
+    with get_conn() as conn:
+        indexed = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+    return JSONResponse({**_reindex_status, "indexed_chunks": indexed})
 
 
 @router.get("/admin/docs")

@@ -145,31 +145,32 @@ async function loadDocs() {
   }).join('');
 }
 
+let _reindexPoll = null;
 async function reindexAll() {
   const status = document.getElementById('reindexStatus');
   status.style.color = '#888';
-  status.textContent = '⏳ Đang index... (có thể mất 30-60 giây)';
+  status.textContent = '⏳ Đang khởi động...';
   try {
-    const res = await fetch('/admin/reindex', {
-      method: 'POST',
-      credentials: 'include',
-    });
-    if (res.status === 401) {
-      status.style.color = '#ef5350';
-      status.textContent = '✗ Cần đăng nhập lại — tải lại trang rồi thử';
-      return;
-    }
+    const res = await fetch('/admin/reindex', { method: 'POST', credentials: 'include' });
+    if (res.status === 401) { status.style.color='#ef5350'; status.textContent='✗ Cần đăng nhập lại'; return; }
     const data = await res.json();
-    if (data.ok) {
-      status.style.color = '#2e7d32';
-      status.textContent = `✓ Index xong — ${data.total} chunks (${data.sources} nguồn)`;
-    } else {
-      status.style.color = '#ef5350';
-      status.textContent = '✗ ' + (data.error || 'Lỗi không xác định');
-    }
+    if (!data.ok) { status.style.color='#ef5350'; status.textContent='✗ ' + (data.error||'Lỗi'); return; }
+    status.textContent = `⏳ Đang index ${data.total} file nền — tự động cập nhật...`;
+    clearInterval(_reindexPoll);
+    _reindexPoll = setInterval(async () => {
+      const r2 = await fetch('/admin/reindex-status', { credentials: 'include' });
+      const d2 = await r2.json();
+      if (d2.running) {
+        status.textContent = `⏳ Đang index: ${d2.done}/${d2.total} file... (${d2.indexed_chunks} chunks)`;
+      } else {
+        clearInterval(_reindexPoll);
+        status.style.color = '#2e7d32';
+        status.textContent = `✓ Xong — ${d2.indexed_chunks} chunks từ ${d2.done} nguồn`;
+      }
+    }, 3000);
   } catch (e) {
     status.style.color = '#ef5350';
-    status.textContent = '✗ Lỗi: ' + (e.message || 'không kết nối được server');
+    status.textContent = '✗ ' + (e.message || 'Lỗi kết nối');
   }
 }
 
