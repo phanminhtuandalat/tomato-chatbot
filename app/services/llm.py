@@ -11,7 +11,7 @@ from datetime import datetime
 import httpx
 from app.config import (
     OPENROUTER_API_KEY, OPENROUTER_API_KEY_2,
-    OPENROUTER_MODEL, OPENROUTER_MODEL_FAST,
+    OPENROUTER_MODEL, OPENROUTER_MODEL_FAST, OPENROUTER_MODEL_VISION,
     MAX_DAILY_SONNET_CALLS, MAX_DAILY_HAIKU_CALLS,
 )
 
@@ -157,9 +157,12 @@ def _check_cost_cap(model: str) -> None:
     """Kiểm tra giới hạn LLM calls/ngày. Raise LLMError('quota') nếu vượt giới hạn."""
     from app.database import check_and_increment_rate
     today = datetime.now().strftime("%Y-%m-%d")
-    is_sonnet = OPENROUTER_MODEL in model
-    kind  = "llm_sonnet" if is_sonnet else "llm_haiku"
-    limit = MAX_DAILY_SONNET_CALLS if is_sonnet else MAX_DAILY_HAIKU_CALLS
+    if OPENROUTER_MODEL in model:
+        kind, limit = "llm_sonnet", MAX_DAILY_SONNET_CALLS
+    elif OPENROUTER_MODEL_VISION in model or "gemini" in model:
+        kind, limit = "llm_vision", MAX_DAILY_HAIKU_CALLS   # Gemini Flash ~ giá Haiku
+    else:
+        kind, limit = "llm_haiku", MAX_DAILY_HAIKU_CALLS
     if not check_and_increment_rate("global", kind, today, limit):
         log.warning("[CostCap] Đã chạm giới hạn %s calls/ngày cho model %s", limit, model)
         raise LLMError("quota")
@@ -243,7 +246,7 @@ async def chat(
     context  = context[:MAX_CONTEXT_CHARS]
 
     if image_base64:
-        # Ảnh: dùng model mạnh (Sonnet) + không cache (mỗi ảnh khác nhau)
+        # Ảnh: dùng Gemini Vision + không cache (mỗi ảnh khác nhau)
         image_base64 = _compress_image(image_base64)
         text = IMAGE_DIAGNOSIS_PROMPT
         if question:
@@ -258,7 +261,7 @@ async def chat(
         if history:
             messages.extend(_trim_history(history))
         messages.append({"role": "user", "content": user_content})
-        return await _call(messages, model=OPENROUTER_MODEL)
+        return await _call(messages, model=OPENROUTER_MODEL_VISION)
 
     # Text: kiểm tra cache trước (chỉ cache khi không có history — độc lập ngữ cảnh)
     no_history = not history or len(history) == 0
@@ -355,4 +358,4 @@ async def extract_from_image(image_base64: str) -> str:
         {"type": "image_url", "image_url": {"url": image_base64}},
         {"type": "text", "text": EXTRACT_PROMPT},
     ]}]
-    return await _call(messages, max_tokens=2048)
+    return await _call(messages, model=OPENROUTER_MODEL_VISION, max_tokens=2048)
