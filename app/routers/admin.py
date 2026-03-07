@@ -230,7 +230,7 @@ async def _do_reindex():
     _reindex_status["running"] = False
 
 @router.post("/admin/reindex")
-async def reindex_all(background_tasks, _: None = Depends(require_admin)):
+async def reindex_all(background_tasks: BackgroundTasks, _: None = Depends(require_admin)):
     """Tạo lại toàn bộ embeddings — chạy nền, không timeout."""
     if not EMBED_ENABLED:
         return JSONResponse({"ok": False, "error": "Chưa cấu hình OPENAI_API_KEY hoặc OPENROUTER_API_KEY"})
