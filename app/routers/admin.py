@@ -16,7 +16,7 @@ from app.config import ADMIN_USER, ADMIN_PASSWORD
 from app.database import (
     get_feedback_stats, get_analytics, create_premium_code, list_premium_codes,
     get_flywheel_data, get_review_tips, approve_tip, reject_tip, get_image_submissions,
-    get_tip_device_id, add_points,
+    get_tip_device_id, add_points, get_evolution_history, get_evolution_stats,
 )
 from app.services import rag as rag_module
 from app.services.embeddings import index_document, EMBED_ENABLED
@@ -329,6 +329,43 @@ Yêu cầu: tiếng Việt, thực tế, có số liệu cụ thể (liều lư�
         return JSONResponse({"ok": True, "filename": out.name, "preview": raw[:300]})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Self-Evolution Engine
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/evolution-log")
+async def evolution_log(_: None = Depends(require_admin)):
+    return JSONResponse({
+        "stats":   get_evolution_stats(),
+        "history": get_evolution_history(limit=100),
+    })
+
+
+@router.post("/admin/run-evolution")
+async def run_evolution(_: None = Depends(require_admin)):
+    """Chạy thủ công 1 chu kỳ evolution ngay lập tức."""
+    from app.services.evolution import run_evolution_cycle
+    result = await run_evolution_cycle()
+    return JSONResponse(result)
+
+
+@router.post("/admin/evolution-config")
+async def evolution_config_update(req: dict, _: None = Depends(require_admin)):
+    """Cập nhật config evolution (GAP_MIN_COUNT, GAP_MAX_PER_CYCLE, EVOLUTION_HOUR)."""
+    import app.services.evolution as evo
+    if "gap_min_count" in req:
+        evo.GAP_MIN_COUNT = max(1, int(req["gap_min_count"]))
+    if "gap_max_per_cycle" in req:
+        evo.GAP_MAX_PER_CYCLE = max(1, min(20, int(req["gap_max_per_cycle"])))
+    if "evolution_hour" in req:
+        evo.EVOLUTION_HOUR = max(0, min(23, int(req["evolution_hour"])))
+    return JSONResponse({
+        "gap_min_count":     evo.GAP_MIN_COUNT,
+        "gap_max_per_cycle": evo.GAP_MAX_PER_CYCLE,
+        "evolution_hour":    evo.EVOLUTION_HOUR,
+    })
 
 
 # ---------------------------------------------------------------------------

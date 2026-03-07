@@ -2,6 +2,7 @@
 Entry point — khởi tạo app và mount routers.
 """
 
+import asyncio
 import logging
 import os
 import shutil
@@ -52,8 +53,18 @@ async def lifespan(app: FastAPI):
                     logging.error("Index lỗi %s: %s", f.name, e)
             logging.info("Auto-index hoàn tất.")
 
+    # ── Evolution Engine ─────────────────────────────────────
+    from app.services.evolution import evolution_scheduler
+    _evo_task = asyncio.create_task(evolution_scheduler())
+
     yield
-    # ── Shutdown (không cần dọn dẹp gì) ─────────────────────
+
+    # ── Shutdown ─────────────────────────────────────────────
+    _evo_task.cancel()
+    try:
+        await _evo_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(title="Chatbot Cà Chua", version="2.0.0", lifespan=lifespan)

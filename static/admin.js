@@ -145,15 +145,6 @@ async function loadDocs() {
   }).join('');
 }
 
-loadDocs();
-loadAnalytics();
-loadFeedback();
-loadFlywheel();
-loadCommunityTips();
-loadImageDataset();
-checkPushEnabled();
-loadCodes();
-
 function fillCode(code, requests, images, maxUses, note) {
   document.getElementById('codeInput').value    = code;
   document.getElementById('codeRequests').value = requests;
@@ -502,6 +493,85 @@ async function testTelegram() {
   }
 }
 
+// ── Self-Evolution Engine ────────────────────────────────────────────────────
+
+async function loadEvolution() {
+  const res  = await fetch('/admin/evolution-log');
+  const data = await res.json();
+  const s    = data.stats || {};
+
+  document.getElementById('evoTotalFilled').textContent = s.total_filled ?? '-';
+  document.getElementById('evoTotalCycles').textContent = s.total_cycles ?? '-';
+  document.getElementById('evoLastCycle').textContent   = s.last_cycle
+    ? s.last_cycle.replace('T', ' ')
+    : 'Chưa chạy lần nào';
+
+  const histEl = document.getElementById('evoHistory');
+  const history = data.history || [];
+  if (!history.length) {
+    histEl.innerHTML = '<span style="color:#aaa;">Chưa có lịch sử. Bấm "Chạy ngay" để thử.</span>';
+    return;
+  }
+
+  const ICONS = {
+    cycle_complete: '🔄',
+    gap_filled:     '✍️',
+  };
+  const COLORS = { success: '#2e7d32', failed: '#ef5350', skipped: '#888' };
+
+  histEl.innerHTML = history.map(r => {
+    const icon  = ICONS[r.action] || 'ℹ️';
+    const color = COLORS[r.result] || '#555';
+    const time  = r.ts.replace('T', ' ').slice(0, 16);
+    const topic = r.topic ? ` <b>${r.topic}</b>` : '';
+    const detail = r.detail ? ` — <span style="color:#888;">${r.detail.slice(0, 80)}</span>` : '';
+    return `<div style="color:${color};">${icon} [${time}]${topic}${detail}</div>`;
+  }).join('');
+}
+
+async function runEvolution() {
+  const btn    = document.getElementById('runEvoBtn');
+  const result = document.getElementById('evoRunResult');
+  btn.disabled = true;
+  btn.textContent = '⏳ Đang chạy...';
+  result.textContent = '';
+
+  try {
+    const res  = await fetch('/admin/run-evolution', { method: 'POST' });
+    const data = await res.json();
+    result.style.color = '#2e7d32';
+    result.innerHTML =
+      `✓ Hoàn tất — tìm thấy <b>${data.gaps_found}</b> gap, ` +
+      `đã tạo <b>${data.gaps_filled}</b> bài, ` +
+      `bỏ qua <b>${data.skipped}</b>, lỗi <b>${data.errors}</b>.`;
+    await loadEvolution();
+    await loadDocs();
+  } catch {
+    result.style.color = '#ef5350';
+    result.textContent = '✗ Lỗi kết nối';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Chạy ngay';
+  }
+}
+
+async function saveEvoConfig() {
+  const body = {
+    gap_min_count:     parseInt(document.getElementById('cfgMinCount').value)    || 3,
+    gap_max_per_cycle: parseInt(document.getElementById('cfgMaxPerCycle').value) || 5,
+    evolution_hour:    parseInt(document.getElementById('cfgHour').value)        || 2,
+  };
+  const res  = await fetch('/admin/evolution-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  document.getElementById('evoHour').textContent = data.evolution_hour;
+  document.getElementById('evoMax').textContent  = data.gap_max_per_cycle;
+  writeLog(`Config đã lưu: gap ≥ ${data.gap_min_count} lần, tối đa ${data.gap_max_per_cycle} bài/chu kỳ, chạy lúc ${data.evolution_hour}h`);
+}
+
 async function loadFeedback() {
   const res = await fetch('/admin/feedback');
   const data = await res.json();
@@ -524,3 +594,14 @@ async function loadFeedback() {
       <div style="font-size:12px;color:#666;line-height:1.5;">💬 ${i.answer.slice(0, 150)}${i.answer.length > 150 ? '...' : ''}</div>
     </div>`).join('');
 }
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+loadDocs();
+loadEvolution();
+loadAnalytics();
+loadFlywheel();
+loadCommunityTips();
+loadFeedback();
+loadImageDataset();
+checkPushEnabled();
+loadCodes();

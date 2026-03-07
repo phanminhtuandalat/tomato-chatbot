@@ -138,6 +138,17 @@ def init_db() -> None:
                 created_at TEXT    NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS evolution_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts         TEXT    NOT NULL,
+                action     TEXT    NOT NULL,
+                topic      TEXT    NOT NULL DEFAULT '',
+                result     TEXT    NOT NULL DEFAULT '',
+                detail     TEXT    NOT NULL DEFAULT ''
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_evolution_ts ON evolution_log(ts)")
 
 
 @contextmanager
@@ -590,6 +601,49 @@ def get_tip_device_id(tip_id: int) -> str | None:
     with get_conn() as conn:
         row = conn.execute("SELECT device_id FROM community_tips WHERE id=?", (tip_id,)).fetchone()
     return row["device_id"] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Evolution log
+# ---------------------------------------------------------------------------
+
+def save_evolution_log(ts: str, action: str, topic: str, result: str, detail: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO evolution_log (ts, action, topic, result, detail) VALUES (?,?,?,?,?)",
+            (ts, action, topic, result, detail[:500]),
+        )
+
+
+def get_evolution_history(limit: int = 50) -> list[dict]:
+    """Lấy lịch sử evolution — chỉ lấy cycle_complete và gap_filled thành công."""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT ts, action, topic, result, detail
+            FROM evolution_log
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_evolution_stats() -> dict:
+    """Thống kê tổng hợp: tổng bài đã tạo, chu kỳ đã chạy, lần chạy cuối."""
+    with get_conn() as conn:
+        total_filled = conn.execute(
+            "SELECT COUNT(*) FROM evolution_log WHERE action='gap_filled' AND result='success'"
+        ).fetchone()[0]
+        total_cycles = conn.execute(
+            "SELECT COUNT(*) FROM evolution_log WHERE action='cycle_complete'"
+        ).fetchone()[0]
+        last_cycle = conn.execute(
+            "SELECT ts FROM evolution_log WHERE action='cycle_complete' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return {
+        "total_filled": total_filled,
+        "total_cycles": total_cycles,
+        "last_cycle":   last_cycle["ts"] if last_cycle else None,
+    }
 
 
 def save_feedback(ts: str, rating: int, question: str, answer: str) -> None:

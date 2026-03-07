@@ -162,6 +162,57 @@
     </div>
   </div>
 
+  <!-- Self-Evolution Engine -->
+  <div class="card">
+    <h2>🧬 Self-Evolution Engine</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">Bot tự phát hiện knowledge gaps và tự động viết bài mỗi đêm lúc <strong id="evoHour">2:00</strong>. Mỗi chu kỳ tối đa <strong id="evoMax">5</strong> bài.</p>
+
+    <div class="stat-row" style="margin-bottom:16px;">
+      <div class="stat-box">
+        <div class="num" id="evoTotalFilled">-</div>
+        <div class="lbl">Bài đã tạo</div>
+      </div>
+      <div class="stat-box">
+        <div class="num" id="evoTotalCycles">-</div>
+        <div class="lbl">Chu kỳ đã chạy</div>
+      </div>
+      <div class="stat-box" style="flex:2;">
+        <div class="num" style="font-size:13px;font-weight:500;" id="evoLastCycle">-</div>
+        <div class="lbl">Chu kỳ cuối</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+      <button class="btn" onclick="runEvolution()" id="runEvoBtn">▶ Chạy ngay</button>
+      <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#555;">
+        <span>Ngưỡng gap:</span>
+        <input id="cfgMinCount" type="number" min="1" max="20" value="3"
+          style="width:54px;border:1.5px solid #c8e6c9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit;outline:none;" />
+        <span>lần hỏi</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#555;">
+        <span>Tối đa:</span>
+        <input id="cfgMaxPerCycle" type="number" min="1" max="20" value="5"
+          style="width:54px;border:1.5px solid #c8e6c9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit;outline:none;" />
+        <span>bài/chu kỳ</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#555;">
+        <span>Giờ chạy:</span>
+        <input id="cfgHour" type="number" min="0" max="23" value="2"
+          style="width:54px;border:1.5px solid #c8e6c9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit;outline:none;" />
+        <span>h hàng ngày</span>
+      </div>
+      <button class="btn" style="background:#f5f5f5;color:#555;border:1px solid #ddd;font-size:12px;padding:6px 12px;" onclick="saveEvoConfig()">Lưu config</button>
+    </div>
+
+    <div id="evoRunResult" style="font-size:13px;margin-bottom:12px;"></div>
+
+    <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:8px;">Lịch sử gần nhất</div>
+    <div id="evoHistory" style="font-size:12px;font-family:monospace;background:#f8f9fa;border-radius:8px;padding:12px;max-height:260px;overflow-y:auto;line-height:1.8;">
+      <span style="color:#aaa;">Đang tải...</span>
+    </div>
+  </div>
+
   <!-- Data Flywheel -->
   <div class="card">
     <h2>🔄 Data Flywheel</h2>
