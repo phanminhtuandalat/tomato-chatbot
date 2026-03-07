@@ -185,20 +185,53 @@ async function loadCodes() {
     const full = c.used_count >= c.max_uses;
     const statusBg = full ? '#ffebee' : (c.used_count > 0 ? '#fff8e1' : '#e8f5e9');
     const statusColor = full ? '#ef5350' : (c.used_count > 0 ? '#f57c00' : '#2e7d32');
-    const statusText = full ? 'Hết lượt' : (c.used_count > 0 ? `${c.used_count}/${c.max_uses} lượt` : 'Chưa dùng');
+    const statusText = full ? `Hết lượt (${c.used_count}/${c.max_uses})` : (c.used_count > 0 ? `${c.used_count}/${c.max_uses} lượt` : 'Chưa dùng');
     const ips = c.redemptions.map(r =>
       `<div style="font-size:11px;color:#aaa;padding-left:4px;">· ${r.ip} <span style="color:#bbb;">${r.ts}</span></div>`
     ).join('');
     return `
     <div class="doc-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
-      <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
+      <div style="display:flex;justify-content:space-between;width:100%;align-items:center;gap:8px;">
         <span style="font-size:15px;font-weight:700;font-family:monospace;color:#1b5e20;">${c.code}</span>
-        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${statusBg};color:${statusColor};">${statusText}</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${statusBg};color:${statusColor};white-space:nowrap;">${statusText}</span>
       </div>
       <div style="font-size:12px;color:#555;">+${c.requests} câu hỏi · +${c.images} ảnh · tối đa ${c.max_uses} người${c.note ? ' · ' + c.note : ''}${c.expires_at ? ' · HH: ' + c.expires_at.slice(0,10) : ''}</div>
       ${ips}
+      <div style="display:flex;gap:6px;margin-top:4px;">
+        ${full ? `<button onclick="resetCode('${c.code}')" style="font-size:11px;padding:3px 10px;border:1px solid #f57c00;border-radius:12px;background:#fff8e1;color:#e65100;cursor:pointer;">↺ Reset lượt</button>` : ''}
+        <button onclick="deleteCode('${c.code}')" style="font-size:11px;padding:3px 10px;border:1px solid #ef9a9a;border-radius:12px;background:#ffebee;color:#c62828;cursor:pointer;">✕ Xóa</button>
+      </div>
     </div>`;
   }).join('');
+}
+
+async function resetCode(code) {
+  if (!confirm(`Reset lượt dùng của mã ${code}? Người đã dùng mã này có thể dùng lại.`)) return;
+  const res = await fetch(`/admin/premium-code/${code}/reset`, { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) loadCodes();
+  else alert('Reset thất bại');
+}
+
+async function deleteCode(code) {
+  if (!confirm(`Xóa mã ${code}? Hành động này không thể hoàn tác.`)) return;
+  const res = await fetch(`/admin/premium-code/${code}`, { method: 'DELETE' });
+  if (res.ok) loadCodes();
+}
+
+async function giftQuota() {
+  const deviceId = prompt('Nhập device_id (cookie "did") hoặc IP của người dùng:');
+  if (!deviceId?.trim()) return;
+  const requests = parseInt(prompt('Tặng bao nhiêu câu hỏi?', '30')) || 0;
+  const images   = parseInt(prompt('Tặng bao nhiêu lượt ảnh?', '0')) || 0;
+  if (!requests && !images) return;
+  const res = await fetch('/admin/gift-quota', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId.trim(), requests, images }),
+  });
+  const data = await res.json();
+  alert(data.ok ? `✓ Đã tặng ${requests} câu hỏi + ${images} ảnh cho ${deviceId}` : 'Tặng thất bại');
 }
 
 async function checkPushEnabled() {

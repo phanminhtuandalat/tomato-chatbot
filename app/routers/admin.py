@@ -234,6 +234,39 @@ async def create_code(req: PremiumCodeRequest, _: None = Depends(require_admin))
 async def get_codes(_: None = Depends(require_admin)):
     return JSONResponse({"codes": list_premium_codes()})
 
+@router.delete("/admin/premium-code/{code}")
+async def delete_code(code: str, _: None = Depends(require_admin)):
+    from app.database import delete_premium_code
+    delete_premium_code(code.upper())
+    return JSONResponse({"ok": True})
+
+@router.post("/admin/premium-code/{code}/reset")
+async def reset_code(code: str, _: None = Depends(require_admin)):
+    """Reset used_count về 0 — dùng khi admin test code rồi muốn cấp lại."""
+    from app.database import reset_premium_code
+    ok = reset_premium_code(code.upper())
+    return JSONResponse({"ok": ok})
+
+class GiftQuotaRequest(BaseModel):
+    device_id: str
+    requests: int = 0
+    images: int = 0
+
+@router.post("/admin/gift-quota")
+async def gift_quota(req: GiftQuotaRequest, _: None = Depends(require_admin)):
+    """Tặng quota trực tiếp cho device_id — không cần qua code."""
+    from app.database import add_bonus_quota
+    if req.requests > 0:
+        add_bonus_quota(req.device_id.strip(), req.requests)
+    if req.images > 0:
+        from app.database import get_conn
+        with get_conn() as conn:
+            conn.execute("""
+                INSERT INTO premium_quota (ip, requests, images) VALUES (?, 0, ?)
+                ON CONFLICT(ip) DO UPDATE SET images = images + excluded.images
+            """, (req.device_id.strip(), req.images))
+    return JSONResponse({"ok": True})
+
 @router.get("/admin/analytics")
 async def analytics_report(_: None = Depends(require_admin)):
     return JSONResponse(get_analytics())

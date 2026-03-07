@@ -293,6 +293,24 @@ def list_premium_codes() -> list[dict]:
     return result
 
 
+def delete_premium_code(code: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM premium_codes WHERE code=?", (code,))
+        conn.execute("DELETE FROM code_redemptions WHERE code=?", (code,))
+
+
+def reset_premium_code(code: str) -> bool:
+    """Reset used_count=0 và xóa redemptions — cho phép dùng lại code."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE premium_codes SET used_count=0 WHERE code=?", (code,)
+        )
+        if cur.rowcount == 0:
+            return False
+        conn.execute("DELETE FROM code_redemptions WHERE code=?", (code,))
+    return True
+
+
 def save_push_subscription(ts: str, endpoint: str, p256dh: str, auth: str) -> None:
     with get_conn() as conn:
         conn.execute("""
