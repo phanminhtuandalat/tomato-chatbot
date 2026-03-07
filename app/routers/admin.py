@@ -183,14 +183,16 @@ async def delete_doc(req: DeleteRequest, _: None = Depends(require_admin)):
 @router.get("/admin/embed-status")
 async def embed_status(_: None = Depends(require_admin)):
     """Kiểm tra trạng thái embedding — debug."""
-    from app.services.embeddings import EMBED_ENABLED, EMBED_MODEL, _API_KEY
+    from app.services.embeddings import EMBED_ENABLED, EMBED_MODEL
     from app.database import get_conn
+    from app.config import OPENAI_API_KEY, OPENROUTER_API_KEY
     with get_conn() as conn:
         chunk_count = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
     return JSONResponse({
         "embed_enabled": EMBED_ENABLED,
-        "model": EMBED_MODEL,
-        "has_key": bool(_API_KEY),
+        "model": EMBED_MODEL or "(none)",
+        "has_openai_key": bool(OPENAI_API_KEY),
+        "has_openrouter_key": bool(OPENROUTER_API_KEY),
         "indexed_chunks": chunk_count,
     })
 
