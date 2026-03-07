@@ -180,6 +180,20 @@ async def delete_doc(req: DeleteRequest, _: None = Depends(require_admin)):
     return JSONResponse({"ok": True})
 
 
+@router.get("/admin/chunk-stats")
+async def chunk_stats(_: None = Depends(require_admin)):
+    """Xem phân bố chunks theo nguồn trong DB."""
+    from app.database import get_conn
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT source, COUNT(*) as cnt FROM chunks GROUP BY source ORDER BY cnt DESC"
+        ).fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+    return JSONResponse({
+        "total": total,
+        "by_source": [{"source": r["source"], "chunks": r["cnt"]} for r in rows],
+    })
+
 @router.get("/admin/embed-status")
 async def embed_status(_: None = Depends(require_admin)):
     """Kiểm tra trạng thái embedding — debug."""
