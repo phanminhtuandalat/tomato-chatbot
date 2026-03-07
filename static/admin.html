@@ -60,6 +60,10 @@
   <!-- Danh sách tài liệu -->
   <div class="card">
     <h2>📚 Tài liệu trong kho (<span id="docCount">0</span>)</h2>
+    <div style="margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <button class="btn" onclick="reindexAll()" style="background:#1565c0;">🔍 Re-index Vector Search</button>
+      <span id="reindexStatus" style="font-size:12px;color:#888;"></span>
+    </div>
     <div class="doc-list" id="docList">
       <div class="empty">Đang tải...</div>
     </div>

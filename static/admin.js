@@ -145,6 +145,25 @@ async function loadDocs() {
   }).join('');
 }
 
+async function reindexAll() {
+  const status = document.getElementById('reindexStatus');
+  status.textContent = '⏳ Đang index... (có thể mất 30-60 giây)';
+  try {
+    const res  = await fetch('/admin/reindex', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      status.style.color = '#2e7d32';
+      status.textContent = `✓ Index xong — ${data.total} chunks (${data.sources} nguồn)`;
+    } else {
+      status.style.color = '#ef5350';
+      status.textContent = '✗ ' + (data.error || 'Lỗi không xác định');
+    }
+  } catch {
+    status.style.color = '#ef5350';
+    status.textContent = '✗ Lỗi kết nối';
+  }
+}
+
 function fillCode(code, requests, images, maxUses, note) {
   document.getElementById('codeInput').value    = code;
   document.getElementById('codeRequests').value = requests;

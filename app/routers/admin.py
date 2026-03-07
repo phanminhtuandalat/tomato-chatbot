@@ -184,17 +184,24 @@ async def delete_doc(req: DeleteRequest, _: None = Depends(require_admin)):
 async def reindex_all(_: None = Depends(require_admin)):
     """Tạo lại toàn bộ embeddings từ knowledge base hiện tại."""
     if not EMBED_ENABLED:
-        return JSONResponse({"ok": False, "error": "OPENAI_API_KEY chưa được cấu hình"})
+        return JSONResponse({"ok": False, "error": "Chưa cấu hình OPENAI_API_KEY hoặc OPENROUTER_API_KEY"})
     total = 0
+    sources = 0
     errors = []
     for md_file in sorted(DATA_DIR.glob("*.md")):
         try:
             content = md_file.read_text(encoding="utf-8")
-            n = await index_document(md_file.stem, md_file.stem.replace("_", " ").title(), content)
-            total += n
+            # Lấy doc title từ dòng H1 đầu tiên
+            import re as _re
+            m = _re.match(r"# (.+)", content.lstrip())
+            doc_title = m.group(1).strip() if m else md_file.stem.replace("_", " ").title()
+            n = await index_document(md_file.stem, doc_title, content)
+            if n > 0:
+                total += n
+                sources += 1
         except Exception as e:
             errors.append(f"{md_file.name}: {e}")
-    return JSONResponse({"ok": True, "total_chunks": total, "errors": errors})
+    return JSONResponse({"ok": True, "total": total, "sources": sources, "errors": errors})
 
 
 @router.get("/admin/docs")
