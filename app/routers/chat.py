@@ -262,7 +262,10 @@ async def api_chat_stream(req: ChatRequest, request: Request):
         if question:
             sess.append({"role": "user", "content": question})
         sess.append({"role": "assistant", "content": answer})
-        save_session_messages(device_id, sess)
+        try:
+            save_session_messages(device_id, sess)
+        except Exception as e:
+            log.warning("save_session_messages error: %s", e)
 
         # Lưu ảnh nếu có
         submission_id = None

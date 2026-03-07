@@ -218,6 +218,7 @@ async function _readStream(res, { onChunk, onDone, onError }) {
   const reader  = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
+  let doneReceived = false;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -231,11 +232,12 @@ async function _readStream(res, { onChunk, onDone, onError }) {
       try {
         const evt = JSON.parse(raw);
         if      (evt.t === 'c')     onChunk(evt.v);
-        else if (evt.t === 'done')  onDone(evt.submission_id);
+        else if (evt.t === 'done')  { doneReceived = true; onDone(evt.submission_id); }
         else if (evt.t === 'error') onError(evt.msg);
       } catch {}
     }
   }
+  if (!doneReceived) onDone(null);  // fallback: stream closed trước khi nhận done event
 }
 
 function showTyping() {
