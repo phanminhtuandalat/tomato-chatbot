@@ -53,6 +53,20 @@ function esc(text) {
     .replace(/\n/g, '<br>');
 }
 
+// Wrap bảng vào div cuộn ngang để không vỡ layout trên mobile
+const _mdRenderer = typeof marked !== 'undefined' ? new marked.Renderer() : null;
+if (_mdRenderer) {
+  _mdRenderer.table = (header, body) =>
+    `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+function renderBot(text) {
+  if (typeof marked !== 'undefined') {
+    return marked.parse(text, { breaks: true, gfm: true, renderer: _mdRenderer });
+  }
+  return esc(text);
+}
+
 /* ── Ảnh ── */
 function handleImage(e) {
   const file = e.target.files[0];
@@ -96,7 +110,7 @@ function addBotMessage(text, question = '', submissionId = null, showActiveFeedb
   const msgId = 'msg-' + Date.now();
   const div = document.createElement('div');
   div.className = 'msg-bot';
-  div.innerHTML = `<div class="bot-avatar">🍅</div><div class="bubble">${esc(text)}</div>`;
+  div.innerHTML = `<div class="bot-avatar">🍅</div><div class="bubble md-content">${renderBot(text)}</div>`;
   messagesEl.appendChild(div);
 
   if (showActiveFeedback) {
