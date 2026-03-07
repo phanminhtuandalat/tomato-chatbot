@@ -84,7 +84,7 @@ MAX_QUESTION_CHARS  = 400   # ~100 token
 MAX_CONTEXT_CHARS   = 1800  # ~450 token (4 chunks rút gọn)
 MAX_HISTORY_MSGS    = 10    # 5 lượt gần nhất
 MAX_HISTORY_CHARS   = 800   # mỗi message ~200 từ — đủ giữ ngữ cảnh trả lời nông nghiệp
-MAX_TOKENS_RESPONSE = 700   # đủ cho câu trả lời nông nghiệp thực tế
+MAX_TOKENS_RESPONSE = 1500  # đủ cho câu trả lời đầy đủ: triệu chứng + chẩn đoán + thuốc + liều lượng
 MAX_IMAGE_PX        = 768   # resize ảnh xuống tối đa 768px, JPEG q=80
 
 
