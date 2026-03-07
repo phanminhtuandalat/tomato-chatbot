@@ -65,14 +65,17 @@ def _check_rate(device_id: str, ip: str, has_image: bool = False) -> None:
     now   = time.time()
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Lớp 2: chặn cứng theo IP (bảo vệ khỏi incognito/xóa cookie) — DB-backed
-    if not check_and_increment_rate(ip, "ip_daily", today, IP_DAY_LIMIT):
-        raise HTTPException(status_code=429, detail="QUOTA_EXCEEDED")
-
     # Lớp 1: giới hạn theo device (cookie) — DB-backed
-    if not check_and_increment_rate(device_id, "device_daily", today, DAILY_LIMIT):
+    using_free = check_and_increment_rate(device_id, "device_daily", today, DAILY_LIMIT)
+    if not using_free:
         # Hết quota miễn phí → thử dùng premium
+        # Premium KHÔNG bị chặn bởi IP limit (IP limit chỉ chống incognito dùng free)
         if not consume_premium(device_id, is_image=False):
+            raise HTTPException(status_code=429, detail="QUOTA_EXCEEDED")
+
+    # Lớp 2: IP limit chỉ áp dụng cho câu hỏi miễn phí (chặn incognito/xóa cookie)
+    if using_free:
+        if not check_and_increment_rate(ip, "ip_daily", today, IP_DAY_LIMIT):
             raise HTTPException(status_code=429, detail="QUOTA_EXCEEDED")
 
     # Giới hạn ảnh/ngày — DB-backed
