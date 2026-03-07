@@ -109,25 +109,27 @@ async def _tavily_search(query: str) -> str:
 
 
 async def _ddg_search(query: str) -> str:
-    """Fallback: DuckDuckGo Instant Answer API (không cần key, có giới hạn)."""
+    """Fallback: duckduckgo-search — kết quả tìm kiếm thật, miễn phí, không cần API key."""
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            r = await client.get(
-                "https://api.duckduckgo.com/",
-                params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
-                headers={"User-Agent": "Mozilla/5.0 TomatoChatbot/1.0"},
-            )
-            if r.status_code != 200:
-                return "Không thể tìm kiếm lúc này."
-            data = r.json()
+        from ddgs import DDGS
+        import asyncio
 
-        parts: list[str] = []
-        if data.get("AbstractText"):
-            parts.append(data["AbstractText"])
-        for topic in data.get("RelatedTopics", [])[:4]:
-            if isinstance(topic, dict) and topic.get("Text"):
-                parts.append(f"• {topic['Text'][:250]}")
+        def _sync_search() -> list[dict]:
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, max_results=5, region="vn-vi"))
+
+        results = await asyncio.get_event_loop().run_in_executor(None, _sync_search)
+        if not results:
+            return "Không tìm thấy thông tin mới trên internet."
+
+        parts = [
+            f"• {r['title']}: {r['body'][:350]}"
+            for r in results if r.get("body")
+        ]
         return "\n".join(parts) if parts else "Không tìm thấy thông tin mới trên internet."
+    except ImportError:
+        log.warning("ddgs chưa được cài. Chạy: pip install ddgs")
+        return "Tính năng tìm kiếm chưa được cài đặt."
     except Exception as e:
         log.warning("DDG search error: %s", e)
         return "Không thể tìm kiếm lúc này."
