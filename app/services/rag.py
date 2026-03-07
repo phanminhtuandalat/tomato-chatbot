@@ -64,18 +64,23 @@ class RAGService:
         chunks = []
         for md_file in sorted(self._data_dir.glob("*.md")):
             text = md_file.read_text(encoding="utf-8")
+            # Lấy tiêu đề tài liệu từ dòng # đầu tiên (level 1)
+            doc_title_match = re.match(r"# (.+)", text.lstrip())
+            doc_title = doc_title_match.group(1).strip() if doc_title_match else md_file.stem.replace("_", " ").title()
+
             sections = re.split(r"\n(?=#{1,3} )", text)
             for section in sections:
                 section = section.strip()
                 if len(section) < 40:
                     continue
                 title_match = re.match(r"#{1,3} (.+)", section)
-                title = title_match.group(1).strip() if title_match else ""
+                section_title = title_match.group(1).strip() if title_match else ""
                 chunks.append({
-                    "title": title,
+                    "title": section_title,
+                    "doc_title": doc_title,   # tiêu đề tài liệu để hiển thị nguồn
                     "content": section,
                     "source": md_file.stem,
-                    "tokens": tokenize_chunk(title, section),
+                    "tokens": tokenize_chunk(section_title, section),
                 })
 
         bm25 = _build_bm25([c["tokens"] for c in chunks])
@@ -88,8 +93,10 @@ class RAGService:
         with self._lock:
             self._load()
 
-    def _rank(self, query: str, top_k: int = 4) -> list[tuple[float, dict]]:
-        """Trả về top_k chunks đã rank theo BM25/TF-IDF."""
+    def _rank(self, query: str, top_k: int = 4, max_per_source: int = 2) -> list[tuple[float, dict]]:
+        """Trả về top_k chunks đã rank theo BM25/TF-IDF.
+        max_per_source: tối đa bao nhiêu chunks từ cùng một nguồn — tránh 1 file lớn chiếm hết top-k.
+        """
         if not query.strip():
             return []
         query_tokens = tokenize(query)
@@ -101,11 +108,22 @@ class RAGService:
         if not chunks:
             return []
         scores = _score(bm25, chunks, query_tokens)
-        return sorted(
+        ranked_all = sorted(
             [(s, c) for s, c in zip(scores, chunks) if s > 0],
             key=lambda x: x[0],
             reverse=True,
-        )[:top_k]
+        )
+        # Lọc: tối đa max_per_source chunks/nguồn để đảm bảo đa dạng tài liệu
+        result: list[tuple[float, dict]] = []
+        source_count: dict[str, int] = {}
+        for score, chunk in ranked_all:
+            src = chunk["source"]
+            if source_count.get(src, 0) < max_per_source:
+                result.append((score, chunk))
+                source_count[src] = source_count.get(src, 0) + 1
+            if len(result) >= top_k:
+                break
+        return result
 
     def search(self, query: str, top_k: int = 4) -> str:
         ranked = self._rank(query, top_k)
@@ -130,7 +148,7 @@ class RAGService:
         for _, c in ranked:
             if c["source"] not in seen:
                 seen.add(c["source"])
-                sources.append({"source": c["source"], "title": c["title"]})
+                sources.append({"source": c["source"], "title": c["doc_title"]})
         return context, sources
 
     @property

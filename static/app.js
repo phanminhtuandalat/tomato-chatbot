@@ -193,6 +193,7 @@ class TypingQueue {
 }
 
 /* ── Source & suggestion helpers ── */
+// Legacy fallback — title giờ được lấy trực tiếp từ API (doc_title)
 const _SOURCE_NAMES = {
   benh_hai_ca_chua:         'Bệnh hại cà chua',
   faq_thuong_gap:           'FAQ thường gặp',
@@ -213,7 +214,7 @@ function _renderSources(sources) {
   sources.forEach(s => {
     const chip = document.createElement('span');
     chip.className = 'source-chip';
-    chip.textContent = _SOURCE_NAMES[s.source] || s.source.replace(/_/g, ' ');
+    chip.textContent = s.title || _SOURCE_NAMES[s.source] || s.source.replace(/_/g, ' ');
     wrap.appendChild(chip);
   });
   return wrap;
