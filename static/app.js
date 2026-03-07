@@ -106,13 +106,7 @@ function addUserMessage(text, imageUrl) {
   scrollBottom();
 }
 
-function addBotMessage(text, question = '', submissionId = null, showActiveFeedback = false) {
-  const msgId = 'msg-' + Date.now();
-  const div = document.createElement('div');
-  div.className = 'msg-bot';
-  div.innerHTML = `<div class="bot-avatar">🍅</div><div class="bubble md-content">${renderBot(text)}</div>`;
-  messagesEl.appendChild(div);
-
+function _appendFeedback(msgId, text, question, submissionId, showActiveFeedback) {
   if (showActiveFeedback) {
     const card = document.createElement('div');
     card.className = 'feedback-card';
@@ -131,7 +125,7 @@ function addBotMessage(text, question = '', submissionId = null, showActiveFeedb
         <button class="reason-skip"   onclick="submitReasonSkip('${msgId}')">Bỏ qua (+1 câu hỏi)</button>
       </div>`;
     card.dataset.question = question;
-    card.dataset.answer = text;
+    card.dataset.answer   = text;
     if (submissionId) card.dataset.submissionId = submissionId;
     messagesEl.appendChild(card);
   } else {
@@ -142,11 +136,68 @@ function addBotMessage(text, question = '', submissionId = null, showActiveFeedb
       <button class="fb-btn" onclick="sendFeedback('${msgId}', 1, this)">👍 Hữu ích</button>
       <button class="fb-btn" onclick="reportWrong('${msgId}', this)">👎 Chưa đúng</button>`;
     fbRow.dataset.question = question;
-    fbRow.dataset.answer = text;
+    fbRow.dataset.answer   = text;
     if (submissionId) fbRow.dataset.submissionId = submissionId;
     messagesEl.appendChild(fbRow);
   }
   scrollBottom();
+}
+
+function addBotMessage(text, question = '', submissionId = null, showActiveFeedback = false) {
+  const msgId = 'msg-' + Date.now();
+  const div = document.createElement('div');
+  div.className = 'msg-bot';
+  div.innerHTML = `<div class="bot-avatar">🍅</div><div class="bubble md-content">${renderBot(text)}</div>`;
+  messagesEl.appendChild(div);
+  _appendFeedback(msgId, text, question, submissionId, showActiveFeedback);
+  scrollBottom();
+}
+
+/* ── Streaming helpers ── */
+function _createStreamingBubble() {
+  const msgId = 'msg-' + Date.now();
+  const div = document.createElement('div');
+  div.className = 'msg-bot';
+  div.innerHTML = '<div class="bot-avatar">🍅</div><div class="bubble md-content streaming"></div>';
+  messagesEl.appendChild(div);
+  scrollBottom();
+  const bubble = div.querySelector('.bubble');
+
+  function finalize(answerText, questionText, submissionId) {
+    bubble.classList.remove('streaming');
+    bubble.innerHTML = renderBot(answerText);
+    const showActive = !activeFeedbackShownToday && !!questionText
+      && !answerText.startsWith('⚠️') && !answerText.startsWith('Lỗi') && !answerText.startsWith('Hệ thống');
+    _appendFeedback(msgId, answerText, questionText, submissionId, showActive);
+    if (showActive) activeFeedbackShownToday = true;
+    scrollBottom();
+  }
+
+  return { bubble, finalize };
+}
+
+async function _readStream(res, { onChunk, onDone, onError }) {
+  const reader  = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const raw = line.slice(6).trim();
+      if (!raw) continue;
+      try {
+        const evt = JSON.parse(raw);
+        if      (evt.t === 'c')     onChunk(evt.v);
+        else if (evt.t === 'done')  onDone(evt.submission_id);
+        else if (evt.t === 'error') onError(evt.msg);
+      } catch {}
+    }
+  }
 }
 
 function showTyping() {
@@ -591,31 +642,54 @@ async function sendMessage() {
     const body = { message: text, image, region: userRegion };
     if (userLat && userLon) { body.lat = userLat; body.lon = userLon; }
 
-    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
     if (res.status === 429) {
-      const err = await res.json(); removeTyping();
+      const err = await res.json();
+      removeTyping();
       if (err.detail === 'QUOTA_EXCEEDED') showQuotaExceeded('text');
       else if (err.detail === 'IMAGE_QUOTA_EXCEEDED') showQuotaExceeded('image');
       else addBotMessage('⏳ ' + (err.detail || 'Quá nhiều yêu cầu. Vui lòng thử lại sau.'));
       return;
     }
-
-    const data = await res.json();
-    const answer = data.answer || 'Xin lỗi, có lỗi xảy ra.';
-    removeTyping();
-    const showActive = !activeFeedbackShownToday && !!text && !answer.startsWith('Lỗi') && !answer.startsWith('Hệ thống');
-    addBotMessage(answer, text, data.submission_id || null, showActive);
-    if (showActive) activeFeedbackShownToday = true;
-
-    updateQuota();
-
-    if (!firstMessageSent) {
-      firstMessageSent = true;
-      document.getElementById('shareTipBtn').style.display = 'flex';
-      if (!userRegion && !localStorage.getItem('region-skipped')) setTimeout(() => openRegionModal(), 1500);
+    if (!res.ok || !res.body) {
+      removeTyping();
+      addBotMessage('⚠️ Lỗi kết nối đến server. Vui lòng thử lại.');
+      return;
     }
-  } catch (err) {
+
+    removeTyping();
+    const { bubble, finalize } = _createStreamingBubble();
+    let fullText = '';
+
+    await _readStream(res, {
+      onChunk(chunk) {
+        fullText += chunk;
+        bubble.innerHTML = renderBot(fullText);
+        scrollBottom();
+      },
+      onDone(submissionId) {
+        bubble.innerHTML = renderBot(fullText);
+        finalize(fullText, text, submissionId);
+        updateQuota();
+        if (!firstMessageSent) {
+          firstMessageSent = true;
+          document.getElementById('shareTipBtn').style.display = 'flex';
+          if (!userRegion && !localStorage.getItem('region-skipped'))
+            setTimeout(() => openRegionModal(), 1500);
+        }
+      },
+      onError(msg) {
+        bubble.classList.remove('streaming');
+        bubble.innerHTML = renderBot(msg || 'Lỗi không xác định.');
+      },
+    });
+
+  } catch {
     removeTyping();
     addBotMessage('⚠️ Mất kết nối đến server. Vui lòng kiểm tra mạng và thử lại.');
   } finally {

@@ -168,6 +168,116 @@ def _check_cost_cap(model: str) -> None:
         raise LLMError("quota")
 
 
+import json as _json
+
+
+async def _call_stream(
+    messages: list[dict],
+    model: str = OPENROUTER_MODEL_FAST,
+    max_tokens: int = MAX_TOKENS_RESPONSE,
+):
+    """Streaming version — async generator yields text chunks."""
+    _check_cost_cap(model)
+
+    api_keys = [OPENROUTER_API_KEY]
+    if OPENROUTER_API_KEY_2:
+        api_keys.append(OPENROUTER_API_KEY_2)
+
+    for key_idx, api_key in enumerate(api_keys):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream(
+                    "POST",
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://chatbot-ca-chua.app",
+                        "X-Title": "Chatbot Ca Chua",
+                    },
+                    json={"model": model, "max_tokens": max_tokens,
+                          "messages": messages, "stream": True},
+                ) as response:
+                    if response.status_code in (401, 402, 429):
+                        log.warning("[LLM stream] key%d status %s — thử key tiếp",
+                                    key_idx + 1, response.status_code)
+                        await response.aread()
+                        continue
+                    if response.status_code >= 500:
+                        raise LLMError("server")
+                    response.raise_for_status()
+
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data = line[6:].strip()
+                        if data == "[DONE]":
+                            return
+                        try:
+                            chunk = _json.loads(data)
+                            content = chunk["choices"][0]["delta"].get("content", "")
+                            if content:
+                                yield content
+                        except Exception:
+                            pass
+            return  # thành công, không thử key tiếp
+        except httpx.TimeoutException:
+            raise LLMError("timeout")
+        except httpx.ConnectError:
+            raise LLMError("connect")
+
+    raise LLMError("auth")
+
+
+async def chat_stream(
+    question: str,
+    context: str = "",
+    image_base64: str = "",
+    history: list[dict] | None = None,
+    region: str = "",
+    weather: str = "",
+):
+    """Streaming version of chat(). Async generator yields text chunks."""
+    question = question[:MAX_QUESTION_CHARS]
+    context  = context[:MAX_CONTEXT_CHARS]
+
+    if image_base64:
+        image_base64 = _compress_image(image_base64)
+        text = IMAGE_DIAGNOSIS_PROMPT
+        if question:
+            text += f"\n\nNgười dùng hỏi thêm: {question}"
+        if context:
+            text += f"\n\n---\nTài liệu tham khảo:\n{context}"
+        user_content = [
+            {"type": "image_url", "image_url": {"url": image_base64}},
+            {"type": "text", "text": text},
+        ]
+        messages = [{"role": "system", "content": _system_prompt(region, weather)}]
+        if history:
+            messages.extend(_trim_history(history))
+        messages.append({"role": "user", "content": user_content})
+        async for chunk in _call_stream(messages, model=OPENROUTER_MODEL_VISION):
+            yield chunk
+        return
+
+    if context:
+        user_content = (
+            f"Câu hỏi: {question}\n\n"
+            f"---\nTài liệu tham khảo (dùng số liệu này, không thay bằng số liệu khác):\n{context}\n---\n\n"
+            f"Trả lời dựa trên tài liệu trên."
+        )
+    else:
+        user_content = question
+
+    messages = [{"role": "system", "content": _system_prompt(region, weather)}]
+    if history:
+        messages.extend(_trim_history(history))
+    messages.append({"role": "user", "content": user_content})
+
+    async for chunk in _call_stream(messages, model=OPENROUTER_MODEL_FAST):
+        yield chunk
+
+
 async def _call(messages: list[dict], model: str = OPENROUTER_MODEL_FAST,
                 max_tokens: int = MAX_TOKENS_RESPONSE) -> str:
     # Kiểm tra cost cap trước khi gọi API

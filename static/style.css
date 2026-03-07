@@ -308,6 +308,19 @@ body {
 }
 .msg-time { font-size: 11px; color: #9e9e9e; text-align: center; margin: 4px 0; }
 
+/* ── Streaming cursor ── */
+.bubble.streaming::after {
+  content: '▋';
+  display: inline;
+  margin-left: 1px;
+  color: #2e7d32;
+  animation: blink-cursor 0.65s step-end infinite;
+}
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
 /* ── Markdown rendering trong bubble bot ── */
 .md-content { white-space: normal; }
 .md-content p { margin: 0 0 8px; }

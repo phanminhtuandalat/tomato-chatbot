@@ -3,12 +3,14 @@ Chat router — /api/chat, /api/feedback
 Có rate limiting: tối đa 30 request/phút mỗi IP.
 """
 
+import json as _json
 import logging
 import time
 from collections import defaultdict
 from datetime import datetime
 
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import StreamingResponse
 
 log = logging.getLogger(__name__)
 from fastapi.responses import JSONResponse
@@ -195,6 +197,88 @@ async def api_chat(req: ChatRequest, request: Request):
             pass  # không block response nếu lưu lỗi
 
     return JSONResponse({"answer": answer, "submission_id": submission_id})
+
+
+# ---------------------------------------------------------------------------
+# Chat — Streaming (SSE)
+# ---------------------------------------------------------------------------
+
+@router.post("/api/chat/stream")
+async def api_chat_stream(req: ChatRequest, request: Request):
+    question  = req.message.strip()
+    image     = req.image.strip()
+    device_id = _get_device_id(request)
+
+    _check_rate(device_id, request.client.host, has_image=bool(image))
+
+    if req.new_session:
+        clear_session(device_id)
+
+    region      = req.region.strip() or get_user_region(device_id)
+    region_name = REGION_NAMES.get(region, "")
+    weather     = await get_weather(region=region, lat=req.lat, lon=req.lon)
+
+    if question:
+        save_question(ts=_dt.now().isoformat(timespec="seconds"),
+                      question=question, has_image=bool(image))
+
+    if question:
+        if EMBED_ENABLED:
+            results = await vector_search(question)
+            context = "\n\n---\n\n".join(
+                f"[{r['source']}] {r['title']}\n{r['content']}" for r in results
+            ) if results else rag_module.rag.search(question)
+        else:
+            context = rag_module.rag.search(question)
+    else:
+        context = ""
+
+    history = get_session_messages(device_id)
+
+    async def event_gen():
+        full_answer = []
+        try:
+            async for chunk in llm.chat_stream(
+                question=question, context=context, image_base64=image,
+                history=history, region=region_name, weather=weather,
+            ):
+                full_answer.append(chunk)
+                yield f"data: {_json.dumps({'t': 'c', 'v': chunk}, ensure_ascii=False)}\n\n"
+
+        except LLMError as e:
+            log.error("LLMError [%s] in stream", e)
+            msg = _ERROR_MESSAGES.get(str(e), "Lỗi không xác định. Vui lòng thử lại.")
+            yield f"data: {_json.dumps({'t': 'error', 'msg': msg})}\n\n"
+            return
+        except Exception as e:
+            log.exception("chat_stream unexpected: %s", e)
+            yield f"data: {_json.dumps({'t': 'error', 'msg': 'Lỗi hệ thống. Vui lòng thử lại.'})}\n\n"
+            return
+
+        answer = "".join(full_answer)
+
+        # Lưu session
+        sess = list(history)
+        if question:
+            sess.append({"role": "user", "content": question})
+        sess.append({"role": "assistant", "content": answer})
+        save_session_messages(device_id, sess)
+
+        # Lưu ảnh nếu có
+        submission_id = None
+        if image:
+            try:
+                submission_id = save_image_submission(device_id, answer)
+            except Exception:
+                pass
+
+        yield f"data: {_json.dumps({'t': 'done', 'submission_id': submission_id})}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------------------
