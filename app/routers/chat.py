@@ -19,6 +19,63 @@ from pydantic import BaseModel
 from app.services import llm, rag as rag_module, tools as tools_module
 from app.services.llm import LLMError
 from app.services.embeddings import vector_search, EMBED_ENABLED
+
+_RRF_K = 60  # hằng số chuẩn của Reciprocal Rank Fusion
+
+
+async def _hybrid_search(question: str, top_k: int = 4) -> tuple[str, list[dict]]:
+    """Hybrid BM25 + Vector search với Reciprocal Rank Fusion.
+
+    Chạy cả hai song song, kết hợp rank bằng RRF:
+      score(chunk) = Σ  1 / (K + rank_i)
+    Trả về (context_str, sources_list).
+    """
+    fetch = top_k * 2  # lấy nhiều candidate hơn để RRF chọn lọc tốt hơn
+
+    # --- BM25 ---
+    bm25_ranked = rag_module.rag._rank(question, top_k=fetch)
+
+    # --- Vector (nếu đã index) ---
+    vec_results: list[dict] = []
+    if EMBED_ENABLED:
+        vec_results = await vector_search(question, top_k=fetch)
+
+    # Fallback thuần BM25 nếu chưa có vector index
+    if not vec_results:
+        return rag_module.rag.search_with_meta(question, top_k=top_k)
+
+    # --- RRF ---
+    rrf_scores: dict[str, float] = {}
+    chunk_store: dict[str, dict] = {}
+
+    for rank, (_, chunk) in enumerate(bm25_ranked):
+        key = f"{chunk['source']}::{chunk['title']}"
+        rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (_RRF_K + rank + 1)
+        chunk_store[key] = chunk
+
+    for rank, res in enumerate(vec_results):
+        key = f"{res['source']}::{res['title']}"
+        rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (_RRF_K + rank + 1)
+        if key not in chunk_store:
+            chunk_store[key] = res  # vector result chưa có doc_title → dùng title
+
+    top_keys = sorted(rrf_scores, key=lambda k: -rrf_scores[k])[:top_k]
+
+    context_parts: list[str] = []
+    seen_src: set[str] = set()
+    sources: list[dict] = []
+    for key in top_keys:
+        chunk = chunk_store[key]
+        context_parts.append(f"[{chunk['source']}] {chunk.get('title', '')}\n{chunk['content']}")
+        src = chunk["source"]
+        if src not in seen_src:
+            seen_src.add(src)
+            sources.append({
+                "source": src,
+                "title": chunk.get("doc_title") or chunk.get("title") or src.replace("_", " "),
+            })
+
+    return "\n\n---\n\n".join(context_parts), sources
 from app.database import (
     save_feedback, save_question, get_premium_quota, consume_premium, redeem_code,
     save_user_region, get_user_region, save_community_tip, save_image_submission,
@@ -156,16 +213,9 @@ async def api_chat(req: ChatRequest, request: Request):
             has_image=bool(image),
         )
 
+    context = ""
     if question:
-        if EMBED_ENABLED:
-            results = await vector_search(question)
-            context = "\n\n---\n\n".join(
-                f"[{r['source']}] {r['title']}\n{r['content']}" for r in results
-            ) if results else rag_module.rag.search(question)  # fallback BM25
-        else:
-            context = rag_module.rag.search(question)
-    else:
-        context = ""
+        context, _ = await _hybrid_search(question)
 
     # Load lịch sử hội thoại từ DB (server-side session)
     history = get_session_messages(device_id)
@@ -228,24 +278,9 @@ async def api_chat_stream(req: ChatRequest, request: Request):
                       question=question, has_image=bool(image))
 
     rag_sources: list[dict] = []
+    context = ""
     if question:
-        if EMBED_ENABLED:
-            results = await vector_search(question)
-            if results:
-                context = "\n\n---\n\n".join(
-                    f"[{r['source']}] {r['title']}\n{r['content']}" for r in results
-                )
-                seen: set[str] = set()
-                for r in results:
-                    if r["source"] not in seen:
-                        seen.add(r["source"])
-                        rag_sources.append({"source": r["source"], "title": r["title"]})
-            else:
-                context, rag_sources = rag_module.rag.search_with_meta(question)
-        else:
-            context, rag_sources = rag_module.rag.search_with_meta(question)
-    else:
-        context = ""
+        context, rag_sources = await _hybrid_search(question)
 
     history = get_session_messages(device_id)
 

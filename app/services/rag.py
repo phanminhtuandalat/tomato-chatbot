@@ -44,8 +44,8 @@ def tokenize(text: str, with_bigrams: bool = True) -> list[str]:
 
 
 def tokenize_chunk(title: str, content: str) -> list[str]:
-    """Title được nhân đôi để boost mức độ ưu tiên."""
-    return tokenize(title) * 2 + tokenize(content)
+    """Title được nhân 3 để boost mức độ ưu tiên — chunk đúng chủ đề thắng."""
+    return tokenize(title) * 3 + tokenize(content)
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +59,9 @@ class RAGService:
         self._chunks: list[dict] = []
         self._bm25 = None
         self._load()
+
+    # Ngưỡng để sub-chunk: section lớn hơn ngưỡng này sẽ bị chia nhỏ hơn
+    CHUNK_SIZE_LIMIT = 500
 
     def _load(self) -> None:
         chunks = []
@@ -75,18 +78,64 @@ class RAGService:
                     continue
                 title_match = re.match(r"#{1,3} (.+)", section)
                 section_title = title_match.group(1).strip() if title_match else ""
-                chunks.append({
-                    "title": section_title,
-                    "doc_title": doc_title,   # tiêu đề tài liệu để hiển thị nguồn
-                    "content": section,
-                    "source": md_file.stem,
-                    "tokens": tokenize_chunk(section_title, section),
-                })
+
+                sub_chunks = self._sub_chunk(section, section_title)
+                for sub in sub_chunks:
+                    chunks.append({
+                        "title": section_title,
+                        "doc_title": doc_title,
+                        "content": sub,
+                        "source": md_file.stem,
+                        "tokens": tokenize_chunk(section_title, sub),
+                    })
 
         bm25 = _build_bm25([c["tokens"] for c in chunks])
-
         self._chunks = chunks
         self._bm25 = bm25
+
+    def _sub_chunk(self, section: str, title: str) -> list[str]:
+        """Chia section lớn thành sub-chunks tại điểm ngắt đoạn văn.
+        Section ngắn (≤ CHUNK_SIZE_LIMIT) giữ nguyên.
+        FAQ có **Hỏi:** → mỗi cặp Q&A là 1 sub-chunk.
+        Section dài khác: chia tại \\n\\n, gộp đến gần giới hạn.
+        """
+        if len(section) <= self.CHUNK_SIZE_LIMIT:
+            return [section]
+
+        # Nếu là FAQ (chứa **Hỏi:**), tách từng cặp Q&A riêng
+        if re.search(r"\*\*Hỏi:", section):
+            qa_blocks = re.split(r"\n(?=\*\*Hỏi:)", section)
+            result = []
+            for block in qa_blocks:
+                block = block.strip()
+                if not block or re.match(r"#{1,3} ", block):
+                    continue
+                # Gắn title vào đầu mỗi Q&A để BM25 vẫn biết context
+                result.append(f"## {title}\n\n{block}")
+            return result if result else [section]
+
+        # Section thường: chia tại \n\n, gộp đến gần giới hạn
+        paragraphs = re.split(r"\n\n+", section)
+        result: list[str] = []
+        current_parts: list[str] = [f"## {title}"]
+        current_len = len(title) + 3
+
+        for para in paragraphs:
+            para = para.strip()
+            if not para or para == f"## {title}" or re.match(r"#{1,3} ", para):
+                continue
+            if current_len + len(para) > self.CHUNK_SIZE_LIMIT and len(current_parts) > 1:
+                result.append("\n\n".join(current_parts))
+                current_parts = [f"## {title}", para]
+                current_len = len(title) + 3 + len(para)
+            else:
+                current_parts.append(para)
+                current_len += len(para)
+
+        if len(current_parts) > 1:
+            result.append("\n\n".join(current_parts))
+
+        return result if result else [section]
 
     def reload(self) -> None:
         """Reload knowledge base — thread-safe."""
@@ -113,10 +162,27 @@ class RAGService:
             key=lambda x: x[0],
             reverse=True,
         )
-        # Lọc: tối đa max_per_source chunks/nguồn để đảm bảo đa dạng tài liệu
+        if not ranked_all:
+            return []
+
+        # Score threshold: loại chunk có điểm thấp hơn 50% điểm cao nhất
+        top_score = ranked_all[0][0]
+        min_score = top_score * 0.5
+
+        # Token coverage: ít nhất 40% query tokens phải xuất hiện trong chunk
+        unique_query = set(query_tokens)
+        min_coverage = max(1, int(len(unique_query) * 0.4))
+
+        # Lọc: score threshold + token coverage + max_per_source
         result: list[tuple[float, dict]] = []
         source_count: dict[str, int] = {}
         for score, chunk in ranked_all:
+            if score < min_score:
+                break
+            chunk_token_set = set(chunk["tokens"])
+            matched = len(unique_query & chunk_token_set)
+            if matched < min_coverage:
+                continue
             src = chunk["source"]
             if source_count.get(src, 0) < max_per_source:
                 result.append((score, chunk))
