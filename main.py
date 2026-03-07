@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.database import init_db
+from app.database import init_db, cleanup_old_rates
 from app.routers import chat, admin, zalo, push
 
 logging.basicConfig(
@@ -38,6 +38,10 @@ async def lifespan(app: FastAPI):
         logging.info("Copied seed knowledge base to data/")
 
     init_db()
+
+    # Dọn rate_limits cũ hơn hôm nay
+    from datetime import datetime as _dt
+    cleanup_old_rates(_dt.now().strftime("%Y-%m-%d"))
 
     from app.services.embeddings import EMBED_ENABLED, index_document, get_indexed_sources
     if EMBED_ENABLED:

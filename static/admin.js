@@ -400,7 +400,7 @@ async function loadCommunityTips() {
     list.innerHTML = '<div class="empty">✅ Không có góp ý nào cần xem xét.</div>';
     return;
   }
-  const CATEGORY_LABELS = { disease:'Sâu bệnh', technique:'Kỹ thuật', fertilizer:'Phân bón', harvest:'Thu hoạch', other:'Khác', '': '' };
+  const CATEGORY_LABELS = { disease:'Sâu bệnh', technique:'Kỹ thuật', fertilizer:'Phân bón', harvest:'Thu hoạch', other:'Khác', evolution:'🧬 Evolution Engine', '': '' };
   list.innerHTML = data.tips.map(t => {
     const pct = t.ai_confidence != null ? Math.round(t.ai_confidence * 100) : null;
     const badgeClass = pct >= 70 ? 'high' : pct >= 40 ? 'mid' : 'low';
@@ -410,8 +410,12 @@ async function loadCommunityTips() {
     const reasonHtml = t.ai_reason
       ? `<div class="ai-reason">🤖 ${t.ai_reason}</div>`
       : '';
+    const evoTag = t.category === 'evolution'
+      ? `<div style="background:#e3f2fd;color:#1565c0;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;display:inline-block;margin-bottom:4px;">🧬 Tự động tạo bởi Evolution Engine — cần review trước khi thêm vào KB</div>`
+      : '';
     return `
     <div class="tip-item" id="tip-${t.id}">
+      ${evoTag}
       <div class="tip-title">${t.title}</div>
       ${badgeHtml}
       ${reasonHtml}

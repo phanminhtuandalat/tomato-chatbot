@@ -88,11 +88,11 @@ async def run_evolution_cycle() -> dict:
             continue
 
         try:
-            filename, preview = await _fill_gap(topic)
+            tip_id, preview = await _fill_gap(topic)
             gaps_filled += 1
-            details.append({"topic": topic, "result": "success", "file": filename, "preview": preview})
-            save_evolution_log(ts, "gap_filled", topic, "success", filename)
-            log.info("[Evolution] Đã fill gap '%s' → %s", topic, filename)
+            details.append({"topic": topic, "result": "success", "tip_id": tip_id, "preview": preview})
+            save_evolution_log(ts, "gap_filled", topic, "success", f"tip_id={tip_id}")
+            log.info("[Evolution] Đã tạo draft tip #%d cho gap '%s'", tip_id, topic)
 
         except Exception as e:
             errors += 1
@@ -116,14 +116,15 @@ async def run_evolution_cycle() -> dict:
     return result
 
 
-async def _fill_gap(topic: str) -> tuple[str, str]:
+async def _fill_gap(topic: str) -> tuple[int, str]:
     """
-    Viết bài về topic, lưu vào data/, reload RAG.
-    Trả về (filename, preview_200_chars).
+    Viết bài về topic, lưu vào community_tips (status='review') để admin xét duyệt.
+    Không đưa thẳng vào KB để tránh thông tin sai lọt vào mà không qua review.
+    Trả về (tip_id, preview_200_chars).
     """
     from app.services.llm import _call, OPENROUTER_MODEL
-    from app.services import rag as rag_module
-    from app.services.embeddings import index_document, EMBED_ENABLED
+    from app.database import save_community_tip
+    from app.services import notify
 
     prompt = _GAP_PROMPT_TEMPLATE.format(topic=topic)
     raw    = await _call(
@@ -134,41 +135,42 @@ async def _fill_gap(topic: str) -> tuple[str, str]:
     content = raw.strip()
     title   = f"Hướng dẫn: {topic}"
 
-    out = _save_doc(title, content, f"evolution_{topic[:40]}")
-    rag_module.rag.reload()
-    if EMBED_ENABLED:
-        await index_document(out.stem, title, out.read_text(encoding="utf-8"))
-
-    return out.name, content[:200]
-
-
-def _save_doc(title: str, content: str, source_hint: str) -> Path:
-    """Lưu nội dung thành file .md trong data/."""
-    name = unicodedata.normalize("NFD", title.lower())
-    name = "".join(c for c in name if unicodedata.category(c) != "Mn")
-    name = re.sub(r"[^\w\s-]", "", name)
-    name = re.sub(r"[\s-]+", "_", name).strip("_")[:60] or "evolution"
-    out  = DATA_DIR / f"{name}.md"
-    out.write_text(
-        f"# {title}\n\n> Nguồn: Tự động tạo từ Evolution Engine ({source_hint})\n\n{content}\n",
-        encoding="utf-8",
+    tip_id = save_community_tip(
+        device_id="evolution_engine",
+        title=title,
+        content=content,
+        category="evolution",
+        region="",
     )
-    return out
+    await notify.push("pending_review", f"[Evolution] {title}")
+    return tip_id, content[:200]
 
 
 def _topic_already_covered(topic: str) -> bool:
     """
-    Kiểm tra nhanh xem đã có file .md nào chứa topic này chưa.
+    Kiểm tra xem đã có bài KB hoặc pending evolution tip cho topic này chưa.
     Dùng normalize để so sánh bỏ dấu.
     """
     norm_topic = unicodedata.normalize("NFD", topic.lower())
     norm_topic = "".join(c for c in norm_topic if unicodedata.category(c) != "Mn")
 
+    # Kiểm tra file .md trong data/
     for md_file in DATA_DIR.glob("*.md"):
         norm_name = unicodedata.normalize("NFD", md_file.stem.lower())
         norm_name = "".join(c for c in norm_name if unicodedata.category(c) != "Mn")
         if norm_topic.replace(" ", "_") in norm_name or norm_topic.replace(" ", "") in norm_name:
             return True
+
+    # Kiểm tra evolution tips đang chờ review trong DB (tránh tạo duplicate mỗi đêm)
+    from app.database import get_conn
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM community_tips WHERE category='evolution' AND title LIKE ? AND status != 'rejected'",
+            (f"%{topic[:40]}%",),
+        ).fetchone()
+    if row:
+        return True
+
     return False
 
 

@@ -149,6 +149,15 @@ def init_db() -> None:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_evolution_ts ON evolution_log(ts)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS rate_limits (
+                key   TEXT    NOT NULL,
+                type  TEXT    NOT NULL,
+                date  TEXT    NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (key, type, date)
+            )
+        """)
 
 
 @contextmanager
@@ -601,6 +610,47 @@ def get_tip_device_id(tip_id: int) -> str | None:
     with get_conn() as conn:
         row = conn.execute("SELECT device_id FROM community_tips WHERE id=?", (tip_id,)).fetchone()
     return row["device_id"] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Rate limits — persistent daily counters (survive server restart)
+# ---------------------------------------------------------------------------
+
+def check_and_increment_rate(key: str, kind: str, date: str, limit: int) -> bool:
+    """
+    Kiểm tra và tăng counter nguyên tử trong 1 transaction.
+    Trả về True nếu còn trong giới hạn (đã tăng).
+    Trả về False nếu đã đạt giới hạn (không tăng).
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT count FROM rate_limits WHERE key=? AND type=? AND date=?",
+            (key, kind, date),
+        ).fetchone()
+        count = row["count"] if row else 0
+        if count >= limit:
+            return False
+        conn.execute("""
+            INSERT INTO rate_limits (key, type, date, count) VALUES (?, ?, ?, 1)
+            ON CONFLICT(key, type, date) DO UPDATE SET count = count + 1
+        """, (key, kind, date))
+    return True
+
+
+def get_daily_rate(key: str, kind: str, date: str) -> int:
+    """Lấy số lần đã dùng trong ngày (để tính remaining quota)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT count FROM rate_limits WHERE key=? AND type=? AND date=?",
+            (key, kind, date),
+        ).fetchone()
+    return row["count"] if row else 0
+
+
+def cleanup_old_rates(today: str) -> None:
+    """Xóa records cũ hơn hôm nay để DB không phình to."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM rate_limits WHERE date < ?", (today,))
 
 
 # ---------------------------------------------------------------------------

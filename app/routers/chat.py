@@ -22,6 +22,7 @@ from app.database import (
     save_user_region, get_user_region, save_community_tip, save_image_submission,
     add_points, get_points, update_tip_ai_result, approve_tip, reject_tip,
     POINTS_PER_QUESTION,
+    check_and_increment_rate, get_daily_rate,
 )
 from datetime import datetime as _dt
 from app.services.weather import get_weather, REGION_NAMES
@@ -43,9 +44,8 @@ def _pts_response(pts: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 _request_log: dict[str, list[float]] = defaultdict(list)
-_daily_log:   dict[str, tuple[str, int]] = {}  # device_id -> (date, count)
-_image_log:   dict[str, tuple[str, int]] = {}  # device_id -> (date, count)
-_ip_daily_log: dict[str, tuple[str, int]] = {} # ip -> (date, count) — chặn abuse
+# _daily_log / _image_log / _ip_daily_log đã chuyển sang SQLite (rate_limits table)
+# để persist qua restart (Railway redeploy không mất quota)
 
 RATE_LIMIT   = 20   # request/phút/device
 DAILY_LIMIT  = 5    # câu hỏi/ngày/device (cookie)
@@ -63,31 +63,23 @@ def _check_rate(device_id: str, ip: str, has_image: bool = False) -> None:
     now   = time.time()
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Lớp 2: chặn cứng theo IP (bảo vệ khỏi incognito/xóa cookie)
-    ip_date, ip_count = _ip_daily_log.get(ip, ("", 0))
-    if ip_date == today and ip_count >= IP_DAY_LIMIT:
+    # Lớp 2: chặn cứng theo IP (bảo vệ khỏi incognito/xóa cookie) — DB-backed
+    if not check_and_increment_rate(ip, "ip_daily", today, IP_DAY_LIMIT):
         raise HTTPException(status_code=429, detail="QUOTA_EXCEEDED")
-    _ip_daily_log[ip] = (today, ip_count + 1) if ip_date == today else (today, 1)
 
-    # Lớp 1: giới hạn theo device (cookie)
-    date, count = _daily_log.get(device_id, ("", 0))
-    if date == today and count >= DAILY_LIMIT:
+    # Lớp 1: giới hạn theo device (cookie) — DB-backed
+    if not check_and_increment_rate(device_id, "device_daily", today, DAILY_LIMIT):
         # Hết quota miễn phí → thử dùng premium
         if not consume_premium(device_id, is_image=False):
             raise HTTPException(status_code=429, detail="QUOTA_EXCEEDED")
-    else:
-        _daily_log[device_id] = (today, count + 1) if date == today else (today, 1)
 
-    # Giới hạn ảnh/ngày
+    # Giới hạn ảnh/ngày — DB-backed
     if has_image:
-        idate, icount = _image_log.get(device_id, ("", 0))
-        if idate == today and icount >= IMAGE_LIMIT:
+        if not check_and_increment_rate(device_id, "image_daily", today, IMAGE_LIMIT):
             if not consume_premium(device_id, is_image=True):
                 raise HTTPException(status_code=429, detail="IMAGE_QUOTA_EXCEEDED")
-        else:
-            _image_log[device_id] = (today, icount + 1) if idate == today else (today, 1)
 
-    # Giới hạn phút
+    # Giới hạn phút — in-memory (reset theo phút, không cần persist)
     timestamps = [t for t in _request_log[device_id] if now - t < WINDOW]
     if len(timestamps) >= RATE_LIMIT:
         raise HTTPException(
@@ -217,12 +209,12 @@ async def api_redeem(req: RedeemRequest, request: Request):
 
 @router.get("/api/quota")
 async def api_quota(request: Request):
-    ip    = _get_device_id(request)
-    today = datetime.now().strftime("%Y-%m-%d")
-    _, used_q = _daily_log.get(ip, ("", 0))
-    _, used_i = _image_log.get(ip, ("", 0))
-    premium   = get_premium_quota(ip)
-    pts       = get_points(ip)
+    device_id = _get_device_id(request)
+    today     = datetime.now().strftime("%Y-%m-%d")
+    used_q    = get_daily_rate(device_id, "device_daily", today)
+    used_i    = get_daily_rate(device_id, "image_daily", today)
+    premium   = get_premium_quota(device_id)
+    pts       = get_points(device_id)
     return JSONResponse({
         "free":    {"requests": max(0, DAILY_LIMIT - used_q), "images": max(0, IMAGE_LIMIT - used_i)},
         "premium": premium,
