@@ -152,6 +152,13 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_evolution_ts ON evolution_log(ts)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_questions_ts ON questions(ts)")
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                device_id  TEXT PRIMARY KEY,
+                messages   TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS rate_limits (
                 key   TEXT    NOT NULL,
                 type  TEXT    NOT NULL,
@@ -651,6 +658,58 @@ def cleanup_old_rates(today: str) -> None:
     """Xóa records cũ hơn hôm nay để DB không phình to."""
     with get_conn() as conn:
         conn.execute("DELETE FROM rate_limits WHERE date < ?", (today,))
+
+
+# ---------------------------------------------------------------------------
+# Session memory — lưu lịch sử hội thoại server-side theo device_id
+# ---------------------------------------------------------------------------
+
+SESSION_MAX_MSGS = 20   # giữ tối đa 20 messages (~10 lượt hỏi đáp)
+SESSION_TTL_H   = 24   # hết hạn sau 24h không hoạt động
+
+
+def get_session_messages(device_id: str) -> list[dict]:
+    """Lấy lịch sử hội thoại. Trả về [] nếu chưa có hoặc đã hết hạn."""
+    import json
+    from datetime import datetime, timedelta
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT messages, updated_at FROM sessions WHERE device_id=?",
+            (device_id,),
+        ).fetchone()
+    if not row:
+        return []
+    # Hết hạn sau SESSION_TTL_H giờ không hoạt động
+    try:
+        updated = datetime.fromisoformat(row["updated_at"])
+        if datetime.now() - updated > timedelta(hours=SESSION_TTL_H):
+            return []
+    except Exception:
+        return []
+    try:
+        return json.loads(row["messages"])
+    except Exception:
+        return []
+
+
+def save_session_messages(device_id: str, messages: list[dict]) -> None:
+    """Lưu/cập nhật lịch sử hội thoại. Giữ tối đa SESSION_MAX_MSGS messages."""
+    import json
+    from datetime import datetime
+    trimmed = messages[-SESSION_MAX_MSGS:]
+    now = datetime.now().isoformat(timespec="seconds")
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO sessions (device_id, messages, updated_at) VALUES (?,?,?)
+               ON CONFLICT(device_id) DO UPDATE SET messages=excluded.messages, updated_at=excluded.updated_at""",
+            (device_id, json.dumps(trimmed, ensure_ascii=False), now),
+        )
+
+
+def clear_session(device_id: str) -> None:
+    """Xóa session của một device (dùng khi user muốn bắt đầu cuộc trò chuyện mới)."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE device_id=?", (device_id,))
 
 
 # ---------------------------------------------------------------------------

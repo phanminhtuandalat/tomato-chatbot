@@ -44,6 +44,13 @@ body {
   font-size: 12px; margin-top: 3px; opacity: 0.85;
   display: flex; align-items: center; gap: 5px;
 }
+.new-session-btn {
+  margin-left: auto; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 50%; width: 34px; height: 34px; font-size: 16px; cursor: pointer;
+  color: white; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.new-session-btn:hover { background: rgba(255,255,255,0.28); }
 .quota-badge {
   display: inline-flex; align-items: center; gap: 4px;
   background: rgba(255,255,255,0.15); border-radius: 20px;
@@ -516,68 +523,29 @@ body {
 .send-btn:disabled { background: #a5d6a7; box-shadow: none; cursor: not-allowed; transform: none; }
 .send-btn svg { width: 20px; height: 20px; }
 
-/* ── Correction banner ── */
-.correction-banner {
-  display: flex; align-items: center; justify-content: space-between;
-  background: #e8f5e9; border-top: 2px solid #a5d6a7;
-  padding: 8px 14px; font-size: 13px; color: #2e7d32; font-weight: 500;
-  gap: 8px;
+/* ── Simple Correction Report ── */
+.simple-correction {
+  margin: 4px 0 4px 44px; padding: 12px 14px;
+  background: #f9fbe7; border: 1.5px solid #a5d6a7; border-radius: 12px;
 }
-.correction-banner span { flex: 1; }
-.correction-banner button {
-  background: none; border: 1.5px solid #a5d6a7; border-radius: 14px;
-  color: #2e7d32; font-size: 12px; padding: 3px 12px; cursor: pointer;
-  white-space: nowrap;
-}
-.correction-banner button:hover { background: #c8e6c9; }
-
-/* ── Correction Form (trắc nghiệm) ── */
-.cf-bubble { padding: 4px 2px; }
-.cf-intro { font-size: 13px; color: #2e7d32; font-weight: 600; margin-bottom: 12px; }
-.cf-question { margin-bottom: 14px; }
-.cf-label { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 7px; }
-.cf-options { display: flex; flex-wrap: wrap; gap: 6px; }
-.cf-opt {
-  font-size: 12px; padding: 5px 13px; border-radius: 16px;
-  border: 1.5px solid #a5d6a7; background: white; color: #333;
-  cursor: pointer; transition: all 0.15s;
-}
-.cf-opt:hover:not(.selected) { background: #e8f5e9; }
-.cf-opt.selected { background: #2e7d32; color: white; border-color: #2e7d32; }
-.cf-other {
-  display: none; margin-top: 7px; width: 100%; box-sizing: border-box;
+.sc-prompt { font-size: 12px; color: #555; margin-bottom: 8px; }
+.sc-input {
+  width: 100%; box-sizing: border-box; resize: vertical;
   border: 1.5px solid #a5d6a7; border-radius: 8px;
   padding: 7px 10px; font-size: 13px; font-family: inherit;
-  outline: none; background: #f9fbe7;
+  outline: none; background: white;
 }
-.cf-input {
-  width: 100%; box-sizing: border-box;
-  border: 1.5px solid #a5d6a7; border-radius: 8px;
-  padding: 7px 10px; font-size: 13px; font-family: inherit;
-  outline: none; background: #f9fbe7;
+.sc-input:focus { border-color: #2e7d32; }
+.sc-actions { display: flex; gap: 8px; margin-top: 8px; }
+.sc-submit {
+  padding: 6px 16px; border-radius: 16px; border: none;
+  background: #2e7d32; color: white; font-size: 12px; font-weight: 600;
+  cursor: pointer;
 }
-.cf-input:focus, .cf-other:focus { border-color: #2e7d32; }
-.cf-yesno { display: flex; gap: 8px; }
-.cf-yn {
-  flex: 1; padding: 8px; border-radius: 10px; font-size: 13px;
-  border: 1.5px solid #a5d6a7; background: white;
-  cursor: pointer; transition: all 0.15s;
+.sc-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+.sc-skip {
+  padding: 6px 14px; border-radius: 16px;
+  border: 1.5px solid #ccc; background: none; color: #888;
+  font-size: 12px; cursor: pointer;
 }
-.cf-yn:hover:not(.selected) { background: #e8f5e9; }
-.cf-yn.selected { background: #2e7d32; color: white; border-color: #2e7d32; }
-.cf-extra-opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
-.cf-sub-opt {
-  font-size: 12px; padding: 5px 13px; border-radius: 16px;
-  border: 1.5px solid #ff8a65; background: white; color: #333;
-  cursor: pointer; transition: all 0.15s;
-}
-.cf-sub-opt:hover:not(.selected) { background: #fff3e0; }
-.cf-sub-opt.selected { background: #e65100; color: white; border-color: #e65100; }
-.cf-loading-hint { font-size: 12px; color: #888; margin-top: 6px; }
-.cf-submit-btn {
-  width: 100%; padding: 10px; border-radius: 10px; margin-top: 6px;
-  background: linear-gradient(135deg, #2e7d32, #43a047);
-  color: white; border: none; font-size: 13px; font-weight: 600;
-  cursor: pointer; transition: opacity 0.15s;
-}
-.cf-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.sc-thanks { font-size: 13px; color: #2e7d32; font-weight: 500; }

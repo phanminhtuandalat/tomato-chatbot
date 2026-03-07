@@ -78,8 +78,8 @@ def _headers() -> dict:
 
 MAX_QUESTION_CHARS  = 400   # ~100 token
 MAX_CONTEXT_CHARS   = 1800  # ~450 token (4 chunks rút gọn)
-MAX_HISTORY_MSGS    = 6     # 3 lượt gần nhất
-MAX_HISTORY_CHARS   = 250   # mỗi message tối đa ~60 token
+MAX_HISTORY_MSGS    = 10    # 5 lượt gần nhất
+MAX_HISTORY_CHARS   = 800   # mỗi message ~200 từ — đủ giữ ngữ cảnh trả lời nông nghiệp
 MAX_TOKENS_RESPONSE = 700   # đủ cho câu trả lời nông nghiệp thực tế
 MAX_IMAGE_PX        = 768   # resize ảnh xuống tối đa 768px, JPEG q=80
 
@@ -287,91 +287,6 @@ async def chat(
     return answer
 
 
-async def generate_followup_options(question: str, wrong_answer: str, field_label: str) -> list[str]:
-    """Khi user chọn 'Khác', tạo thêm 4-6 options cụ thể hơn cho trường đó."""
-    prompt = f"""Câu hỏi về cà chua: {question[:200]}
-Câu trả lời AI bị sai: {wrong_answer[:300]}
-Trường đang hỏi: "{field_label}"
-Người dùng chọn "Khác" — nghĩa là các lựa chọn trước chưa đúng.
-
-Liệt kê 4-6 giá trị phổ biến khác trong kỹ thuật trồng cà chua Việt Nam cho trường "{field_label}".
-Không lặp lại các giá trị đã có. Luôn kết thúc bằng "Nhập tay".
-
-Trả về JSON: {{"options": ["giá trị 1", "giá trị 2", "giá trị 3", "Nhập tay"]}}"""
-
-    raw = await _call([{"role": "user", "content": prompt}], model=OPENROUTER_MODEL_FAST, max_tokens=200)
-    import json, re
-    try:
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
-        if m:
-            opts = json.loads(m.group()).get("options", [])
-            if opts:
-                return [str(o) for o in opts]
-    except (json.JSONDecodeError, ValueError, KeyError) as e:
-        log.warning("generate_followup_options parse error: %s", e)
-    return []
-
-
-async def verify_and_correct(question: str, wrong_answer: str, correction: str) -> dict:
-    """
-    Kiểm chứng thông tin sửa của người dùng và viết lại câu trả lời đúng.
-    Trả về: {verified, confidence, corrected_answer, reason}
-    """
-    from app.services.rag import rag
-    kb_context = rag.search(f"{question} {correction}", top_k=3)
-    context_section = (
-        f"\nTài liệu tham khảo:\n{kb_context[:2000]}"
-        if kb_context else "\n(Không có tài liệu liên quan)"
-    )
-
-    prompt = f"""Người dùng báo câu trả lời AI sai và cung cấp thông tin đúng hơn.
-
-Câu hỏi: {question[:300]}
-Câu trả lời AI (bị báo sai): {wrong_answer[:400]}
-Thông tin đúng theo người dùng: {correction[:500]}
-{context_section}
-
-Nhiệm vụ: Kiểm tra thông tin người dùng có đúng kỹ thuật trồng cà chua không.
-
-Luôn trả về JSON hợp lệ (KHÔNG giải thích thêm, KHÔNG thêm text ngoài JSON):
-{{"verified": true, "confidence": 0.85, "corrected_answer": "câu trả lời ngắn gọn dưới 150 từ", "reason": "lý do 1 câu"}}
-
-Lưu ý:
-- corrected_answer: ngắn gọn, thực tế, dưới 150 từ
-- verified=true nếu confidence >= 0.70
-- verified=false nếu thông tin không đủ hoặc sai kỹ thuật
-- Dù KB không có dữ liệu vẫn dùng kiến thức chuyên môn để đánh giá"""
-
-    raw = await _call([{"role": "user", "content": prompt}],
-                      model=OPENROUTER_MODEL, max_tokens=800)
-    import json, re
-    try:
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
-        if m:
-            data = json.loads(m.group())
-            confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
-            return {
-                "verified":          confidence >= 0.7 and bool(data.get("verified", False)),
-                "confidence":        confidence,
-                "corrected_answer":  str(data.get("corrected_answer", ""))[:1000],
-                "reason":            str(data.get("reason", ""))[:300],
-            }
-    except (json.JSONDecodeError, ValueError, KeyError) as e:
-        log.warning("verify_and_correct parse error: %s | raw: %.300s", e, raw)
-
-    # Fallback: JSON bị cắt hoặc không parse được — thử extract thủ công
-    if raw:
-        import re as _re
-        v = bool(_re.search(r'"verified"\s*:\s*true', raw, _re.IGNORECASE))
-        c = float((_re.search(r'"confidence"\s*:\s*([\d.]+)', raw) or [None, "0"])[1])
-        if v and c >= 0.7:
-            ans = (_re.search(r'"corrected_answer"\s*:\s*"([^"]{10,})"', raw) or [None, ""])[1]
-            if ans:
-                return {"verified": True, "confidence": c, "corrected_answer": ans[:1000], "reason": ""}
-
-    return {"verified": False, "confidence": 0.0, "corrected_answer": "", "reason": "Không đủ thông tin để xác nhận tự động — admin sẽ xem xét"}
-
-
 async def verify_tip(title: str, content: str, category: str) -> dict:
     """
     Kiểm chứng community tip bằng Sonnet, so với knowledge base hiện tại.
@@ -428,124 +343,6 @@ Quy tắc action:
         log.warning("verify_tip parse error: %s | raw: %.200s", e, raw)
 
     return {"valid": True, "confidence": 0.5, "reason": "Không thể kiểm chứng tự động", "action": "review"}
-
-
-async def generate_correction_form(question: str, wrong_answer: str) -> dict:
-    """
-    Phân tích từng điểm sai trong câu trả lời, tạo câu hỏi trắc nghiệm sát với nội dung đó.
-    Trả về: {intro, questions: [{id, type, label, options?, placeholder?, unit?}]}
-    """
-    prompt = f"""Bạn là chuyên gia nông nghiệp. Người dùng báo câu trả lời AI sai.
-
-Câu hỏi: {question[:200]}
-Câu trả lời AI (bị báo sai): {wrong_answer[:400]}
-
-Bước 1 — Phân tích: Liệt kê từng thông tin cụ thể trong câu trả lời trên có thể sai:
-ví dụ: "mật độ 20,000 cây/ha", "khoảng cách 50x50cm", "bón 200kg/ha", "dùng thuốc X"...
-
-Bước 2 — Tạo câu hỏi: Với mỗi thông tin có thể sai, tạo 1 câu hỏi trắc nghiệm:
-- Đưa GIÁ TRỊ SAI (từ câu trả lời AI) vào làm 1 option, để người dùng dễ nhận ra và chọn đúng
-- Thêm 2-3 giá trị đúng phổ biến làm option khác
-- Luôn có option "Khác" để người dùng tự nhập
-
-Trả về JSON (chỉ JSON, không giải thích):
-{{"intro":"Câu trả lời có thể sai ở chỗ nào? Bà con chọn thông tin đúng nhé:","questions":[
-  {{"id":"q1","type":"choice","label":"Mật độ trồng là bao nhiêu cây/ha?","options":["20,000 cây/ha (AI trả lời)","33,000 cây/ha","40,000 cây/ha","Khác"]}},
-  {{"id":"q2","type":"choice","label":"Khoảng cách trồng hàng × cây?","options":["50×50cm (AI trả lời)","60×40cm","70×50cm","Khác"]}},
-  {{"id":"q3","type":"text","label":"Thông tin nào khác còn sai? (tuỳ chọn)","placeholder":"Ví dụ: liều phân bón, tên thuốc..."}}
-]}}
-
-Quy tắc:
-- Mỗi câu hỏi cho 1 điểm thông tin cụ thể (số liệu, tên thuốc, kỹ thuật)
-- Ghi rõ "(AI trả lời)" sau giá trị sai để người dùng dễ nhận biết
-- type "choice": khi có giá trị cụ thể để so sánh
-- type "number": khi cần nhập số chính xác (kèm unit)
-- type "text": câu hỏi mở, tuỳ chọn, đặt cuối
-- Tối đa 4 câu, chỉ hỏi những gì thực sự có trong câu trả lời sai"""
-
-    raw = await _call([{"role": "user", "content": prompt}], model=OPENROUTER_MODEL_FAST, max_tokens=600)
-    import json, re
-    try:
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
-        if m:
-            data = json.loads(m.group())
-            if "questions" in data and len(data["questions"]) > 0:
-                return data
-    except (json.JSONDecodeError, ValueError, KeyError) as e:
-        log.warning("generate_correction_form parse error: %s | raw: %.200s", e, raw)
-
-    return {
-        "intro": "Câu trả lời sai ở chỗ nào? Bà con cho biết thông tin đúng nhé:",
-        "questions": [
-            {"id": "q1", "type": "text", "label": "Thông tin đúng là gì?", "placeholder": "Ví dụ: mật độ phải là 40,000 cây/ha, khoảng cách 70×50cm..."},
-            {"id": "q2", "type": "yesno", "label": "Bà con chắc chắn về thông tin này không?"},
-        ]
-    }
-
-
-async def correct_chat_turn(
-    question: str,
-    wrong_answer: str,
-    turns: list[dict],
-    user_message: str,
-) -> dict:
-    """
-    Multi-turn conversational correction.
-    Trả về: {action: "continue"|"save"|"cancel", reply: str, corrected_answer: str, confidence: float}
-    """
-    from app.services.rag import rag
-    kb_context = rag.search(f"{question} {user_message}", top_k=3)
-    context_section = f"\nKiến thức tham khảo:\n{kb_context[:1500]}" if kb_context else ""
-
-    history_text = ""
-    for t in turns[-8:]:
-        label = "Người dùng" if t["role"] == "user" else "Bot"
-        history_text += f"{label}: {t['content']}\n"
-
-    prompt = f"""Bạn đang hỗ trợ người dùng sửa câu trả lời sai của AI về cà chua. Hãy tương tác thân thiện, ngắn gọn.
-
-Câu hỏi gốc: {question[:300]}
-Câu trả lời cũ (bị báo sai): {wrong_answer[:400]}
-{context_section}
-
-Lịch sử hội thoại:
-{history_text}
-Người dùng (mới nhất): {user_message[:400]}
-
-Hướng dẫn:
-- Nếu người dùng chưa nói sai gì cụ thể: hỏi sai ở đâu
-- Nếu người dùng đã nói sai gì: kiểm tra với KB, tóm tắt lại thông tin đúng và hỏi xác nhận
-- Nếu người dùng xác nhận (đúng rồi, phải rồi, ok, đúng, ừ, vâng, cập nhật đi, chính xác): action=save, viết corrected_answer đầy đủ cho câu hỏi gốc
-- Nếu người dùng hủy (thôi, bỏ qua, không cần, hủy, cancel): action=cancel
-- Ngược lại: action=continue, hỏi thêm
-
-Trả về JSON (chỉ JSON):
-{{"action": "continue", "reply": "Câu hỏi/xác nhận ngắn...", "corrected_answer": "", "confidence": 0.0}}
-
-Với action=save: corrected_answer là câu trả lời hoàn chỉnh cho câu hỏi gốc, ngắn gọn, thực tế."""
-
-    # LLMError (timeout/auth/quota) propagate lên global handler — không bắt ở đây
-    raw = await _call([{"role": "user", "content": prompt}],
-                      model=OPENROUTER_MODEL, max_tokens=500)
-
-    import json, re
-    try:
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
-        if m:
-            data = json.loads(m.group())
-            action = data.get("action", "continue")
-            if action not in ("continue", "save", "cancel"):
-                action = "continue"
-            return {
-                "action":           action,
-                "reply":            str(data.get("reply", ""))[:600],
-                "corrected_answer": str(data.get("corrected_answer", ""))[:1000],
-                "confidence":       max(0.0, min(1.0, float(data.get("confidence", 0.7)))),
-            }
-    except (json.JSONDecodeError, ValueError, KeyError) as e:
-        log.warning("correct_chat_turn parse error: %s | raw: %.200s", e, raw)
-
-    return {"action": "continue", "reply": "Tôi chưa hiểu rõ phản hồi. Bà con thử diễn đạt lại nhé.", "corrected_answer": "", "confidence": 0.0}
 
 
 async def extract_from_image(image_base64: str) -> str:

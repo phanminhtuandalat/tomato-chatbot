@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Cà Chua" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=20260307b" />
+  <link rel="stylesheet" href="/static/style.css?v=20260307c" />
 </head>
 <body>
 <div class="app">
@@ -26,6 +26,7 @@
         <span class="quota-badge" id="quotaBadge">...</span>
       </p>
     </div>
+    <button class="new-session-btn" onclick="newSession()" title="Bắt đầu cuộc trò chuyện mới">✏️</button>
   </div>
 
   <!-- Banner mùa vụ -->
@@ -177,12 +178,6 @@ Bà con cũng có thể <b>chụp ảnh lá/quả bị bệnh</b> gửi lên, t�
     <button class="preview-remove" onclick="removeImage()" title="Xoá ảnh">✕</button>
   </div>
 
-  <!-- Correction mode banner -->
-  <div class="correction-banner" id="correctionBanner" style="display:none">
-    <span>🔧 Đang sửa câu trả lời — gõ thông tin đúng bên dưới</span>
-    <button onclick="cancelCorrection()">Hủy</button>
-  </div>
-
   <!-- Input -->
   <div class="input-bar">
     <!-- Nút chọn ảnh -->
@@ -219,6 +214,6 @@ Bà con cũng có thể <b>chụp ảnh lá/quả bị bệnh</b> gửi lên, t�
   </div>
 
 </div>
-<script src="/static/app.js?v=20260307b"></script>
+<script src="/static/app.js?v=20260307c"></script>
 </body>
 </html>

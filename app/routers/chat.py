@@ -20,9 +20,9 @@ from app.services.embeddings import vector_search, EMBED_ENABLED
 from app.database import (
     save_feedback, save_question, get_premium_quota, consume_premium, redeem_code,
     save_user_region, get_user_region, save_community_tip, save_image_submission,
-    add_points, get_points, update_tip_ai_result, approve_tip, reject_tip,
-    POINTS_PER_QUESTION,
+    add_points, get_points, update_tip_ai_result, approve_tip, reject_tip, POINTS_PER_QUESTION,
     check_and_increment_rate, get_daily_rate,
+    get_session_messages, save_session_messages, clear_session,
 )
 from datetime import datetime as _dt
 from app.services.weather import get_weather, REGION_NAMES
@@ -101,10 +101,10 @@ class HistoryMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = ""
     image: str = ""
-    history: list[HistoryMessage] = []
     region: str = ""
     lat: float = 0.0
     lon: float = 0.0
+    new_session: bool = False  # client yêu cầu xóa session, bắt đầu cuộc trò chuyện mới
 
 
 _ERROR_MESSAGES = {
@@ -128,6 +128,10 @@ async def api_chat(req: ChatRequest, request: Request):
 
     if not question and not image:
         return JSONResponse({"answer": ""})
+
+    # Xóa session nếu client yêu cầu bắt đầu lại
+    if req.new_session:
+        clear_session(device_id)
 
     # Lấy region: từ request → DB → ""
     region = req.region.strip()
@@ -156,7 +160,9 @@ async def api_chat(req: ChatRequest, request: Request):
             context = rag_module.rag.search(question)
     else:
         context = ""
-    history = [{"role": m.role, "content": m.content} for m in req.history]
+
+    # Load lịch sử hội thoại từ DB (server-side session)
+    history = get_session_messages(device_id)
 
     try:
         answer = await llm.chat(
@@ -173,6 +179,12 @@ async def api_chat(req: ChatRequest, request: Request):
     except Exception as e:
         log.exception("llm.chat unexpected error: %s", e)
         return JSONResponse({"answer": "Lỗi hệ thống không xác định. Vui lòng thử lại sau ít phút."})
+
+    # Lưu lịch sử hội thoại vào DB
+    if question:
+        history.append({"role": "user", "content": question})
+    history.append({"role": "assistant", "content": answer})
+    save_session_messages(device_id, history)
 
     # Lưu chẩn đoán vào dataset nếu có ảnh (không lưu ảnh để tiết kiệm DB)
     submission_id = None
@@ -265,92 +277,14 @@ class CorrectionRequest(BaseModel):
     question:     str = ""
     wrong_answer: str = ""
     correction:   str = ""
-    reason:       str = ""
     submission_id: int | None = None
-
-
-class CorrectionFormRequest(BaseModel):
-    question:     str = ""
-    wrong_answer: str = ""
-
-
-class FollowupRequest(BaseModel):
-    question:    str = ""
-    wrong_answer: str = ""
-    field_label: str = ""
-
-
-@router.post("/api/correction-followup")
-async def api_correction_followup(req: FollowupRequest):
-    from app.services.llm import generate_followup_options
-    opts = await generate_followup_options(req.question, req.wrong_answer, req.field_label)
-    return JSONResponse({"options": opts})
-
-
-@router.post("/api/correction-form")
-async def api_correction_form(req: CorrectionFormRequest, request: Request):
-    from app.services.llm import generate_correction_form
-    result = await generate_correction_form(req.question, req.wrong_answer)
-    return JSONResponse(result)
-
-
-class CorrectChatRequest(BaseModel):
-    question:     str = ""
-    wrong_answer: str = ""
-    user_message: str = ""
-    turns:        list[HistoryMessage] = []
-    submission_id: int | None = None
-
-
-@router.post("/api/correct-chat")
-async def api_correct_chat(req: CorrectChatRequest, request: Request):
-    device_id = _get_device_id(request)
-
-    from app.services.llm import correct_chat_turn
-    turns = [{"role": m.role, "content": m.content} for m in req.turns]
-    result = await correct_chat_turn(
-        question=req.question,
-        wrong_answer=req.wrong_answer,
-        turns=turns,
-        user_message=req.user_message,
-    )
-
-    if result["action"] == "save" and result["corrected_answer"]:
-        title   = f"Sửa: {req.question[:80]}"
-        content = f"Câu hỏi: {req.question}\n\nThông tin đúng:\n{result['corrected_answer']}"
-        tip_id  = save_community_tip(
-            device_id=device_id, title=title, content=content,
-            category="correction", region="",
-        )
-        update_tip_ai_result(tip_id, result["confidence"], "Verified via conversational correction", "approve")
-        approve_tip(tip_id)
-        _save_tip_as_doc(tip_id, title, result["corrected_answer"])
-
-        save_feedback(
-            ts=_dt.now().isoformat(timespec="seconds"),
-            rating=-1,
-            question=f"{req.question}\n[Sửa qua hội thoại]",
-            answer=req.wrong_answer,
-        )
-        if req.submission_id:
-            try:
-                from app.database import update_image_feedback
-                update_image_feedback(req.submission_id, -1)
-            except Exception:
-                pass
-
-        pts = add_points(device_id, "correction_verified", 15)
-        result.update(_pts_response(pts))
-        await notify.push("correction", title)  # không raise — đã wrap try/except trong notify
-
-    return JSONResponse(result)
 
 
 @router.post("/api/correct")
 async def api_correct(req: CorrectionRequest, request: Request):
     device_id = _get_device_id(request)
 
-    # Luôn lưu feedback -1 kèm lý do
+    # Lưu feedback -1
     save_feedback(
         ts=_dt.now().isoformat(timespec="seconds"),
         rating=-1,
@@ -365,50 +299,30 @@ async def api_correct(req: CorrectionRequest, request: Request):
             pass
 
     if not req.correction.strip():
-        return JSONResponse({"verified": False, "points": 0, "questions_added": 0, "current_points": 0})
+        return JSONResponse({"ok": True, "points": 0, "questions_added": 0, "current_points": 0})
 
-    # Kiểm chứng thông tin sửa bằng Sonnet
-    from app.services.llm import verify_and_correct
-    try:
-        result = await verify_and_correct(req.question, req.wrong_answer, req.correction)
-    except Exception:
-        result = {"verified": False, "confidence": 0.0, "corrected_answer": "", "reason": ""}
-
-    if result["verified"]:
-        # Lưu vào KB ngay
-        title = f"Sửa: {req.question[:80]}"
-        content = f"Câu hỏi: {req.question}\n\nThông tin đúng:\n{req.correction}\n\nGiải thích:\n{result['corrected_answer']}"
-        tip_id = save_community_tip(
-            device_id=device_id, title=title, content=content,
-            category="correction", region="",
-        )
-        update_tip_ai_result(tip_id, result["confidence"], result["reason"], "approve")
-        approve_tip(tip_id)
-        _save_tip_as_doc(tip_id, title, content)
-        pts = add_points(device_id, "correction_verified", 15)
-        return JSONResponse({
-            "verified":         True,
-            "corrected_answer": result["corrected_answer"],
-            "confidence":       result["confidence"],
-            **_pts_response(pts),
-        })
-
-    # AI không xác nhận được → lưu cho admin xem xét thủ công
+    # Lưu vào community_tips để admin xem xét và bổ sung kiến thức
     title   = f"Sửa: {req.question[:80]}"
     content = f"Câu hỏi: {req.question}\n\nCâu trả lời cũ (bị báo sai):\n{req.wrong_answer}\n\nThông tin người dùng cung cấp:\n{req.correction}"
-    tip_id  = save_community_tip(
+    save_community_tip(
         device_id=device_id, title=title, content=content,
         category="correction", region="",
     )
-    update_tip_ai_result(tip_id, result.get("confidence", 0.0), result.get("reason", "Chưa đủ cơ sở xác nhận tự động"), "review")
     await notify.push("pending_review", title)
 
     pts = add_points(device_id, "correction_pending", 3)
-    return JSONResponse({
-        "verified": False,
-        "reason":   result.get("reason", ""),
-        **_pts_response(pts),
-    })
+    return JSONResponse({"ok": True, **_pts_response(pts)})
+
+
+# ---------------------------------------------------------------------------
+# Session control
+# ---------------------------------------------------------------------------
+
+@router.post("/api/new-session")
+async def api_new_session(request: Request):
+    """Xóa session hiện tại — bắt đầu cuộc trò chuyện mới."""
+    clear_session(_get_device_id(request))
+    return JSONResponse({"ok": True})
 
 
 # ---------------------------------------------------------------------------
