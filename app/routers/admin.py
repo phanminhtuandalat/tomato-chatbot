@@ -440,7 +440,7 @@ Chỉ trả về nội dung bài viết Markdown, không thêm lời mở đầu
             async for chunk in _call_stream(
                 [{"role": "user", "content": prompt}],
                 model=OPENROUTER_MODEL,
-                max_tokens=1500,
+                max_tokens=3000,
             ):
                 yield chunk
         except Exception as e:
