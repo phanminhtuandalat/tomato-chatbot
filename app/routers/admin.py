@@ -388,6 +388,82 @@ async def community_reject(tip_id: int, req: RejectRequest, _: None = Depends(re
 
 
 # ---------------------------------------------------------------------------
+# AI Generate KB Article — admin nhập chủ đề, AI viết bài, xem trước rồi mới lưu
+# ---------------------------------------------------------------------------
+
+class GenerateKbRequest(BaseModel):
+    topic: str
+
+class SaveKbRequest(BaseModel):
+    title: str
+    content: str
+
+@router.post("/admin/generate-kb-article")
+async def generate_kb_article(req: GenerateKbRequest, _: None = Depends(require_admin)):
+    """Dùng Claude Sonnet viết bài KB từ chủ đề — trả về nội dung để admin xem trước."""
+    import re
+    topic = req.topic.strip()[:200]
+    if not topic:
+        return JSONResponse({"ok": False, "error": "Chưa nhập chủ đề"})
+
+    prompt = f"""Bạn là chuyên gia nông nghiệp Việt Nam, chuyên về cà chua và rau màu. Viết một bài kiến thức chi tiết về chủ đề: "{topic}"
+
+Yêu cầu bắt buộc:
+- Viết bằng tiếng Việt, ngôn ngữ thực tế dành cho nông dân
+- Có số liệu cụ thể: tên thuốc, liều lượng (ml/lít nước hoặc g/ha), thời điểm xử lý
+- Phù hợp điều kiện Việt Nam (khí hậu nhiệt đới, thị trường thuốc BVTV Việt Nam)
+- Nếu không chắc về số liệu → nói rõ "tham khảo thêm cán bộ khuyến nông địa phương"
+
+Cấu trúc bài (dùng Markdown):
+# [Tiêu đề cụ thể về {topic}]
+
+## Tổng quan
+[2-3 câu giới thiệu]
+
+## Nhận biết / Triệu chứng
+[Mô tả cụ thể — bỏ section này nếu không liên quan đến bệnh/sâu]
+
+## Nguyên nhân
+[Nguyên nhân chính — bỏ nếu không liên quan]
+
+## Cách xử lý / Kỹ thuật
+[Tên thuốc/biện pháp, liều lượng, thời điểm — ưu tiên thuốc phổ biến ở Việt Nam]
+
+## Phòng ngừa / Lưu ý
+[2-3 biện pháp thực tế]
+
+Chỉ trả về nội dung bài viết Markdown, không thêm lời mở đầu hay kết."""
+
+    try:
+        from app.services.llm import _call, OPENROUTER_MODEL
+        content = await _call(
+            [{"role": "user", "content": prompt}],
+            model=OPENROUTER_MODEL,
+            max_tokens=1500,
+        )
+        content = content.strip()
+        title_match = re.match(r"#+ (.+)", content)
+        title = title_match.group(1).strip() if title_match else topic
+        return JSONResponse({"ok": True, "title": title, "content": content})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@router.post("/admin/save-kb-article")
+async def save_kb_article(req: SaveKbRequest, _: None = Depends(require_admin)):
+    """Lưu bài KB đã được admin xem trước và chỉnh sửa vào knowledge base."""
+    title = req.title.strip()
+    content = req.content.strip()
+    if not title or len(content) < 100:
+        return JSONResponse({"ok": False, "error": "Tiêu đề hoặc nội dung quá ngắn"})
+    out = _save_doc(title, content, "AI Generated")
+    rag_module.rag.reload()
+    if EMBED_ENABLED:
+        await index_document(out.stem, title, out.read_text(encoding="utf-8"))
+    return JSONResponse({"ok": True, "filename": out.name, "chars": len(content)})
+
+
+# ---------------------------------------------------------------------------
 # Data Flywheel — AI tạo bài từ gap
 # ---------------------------------------------------------------------------
 

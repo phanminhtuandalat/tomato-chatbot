@@ -54,6 +54,41 @@
     </div>
   </div>
 
+  <!-- Tạo bài KB bằng AI -->
+  <div class="card">
+    <h2>🤖 Tạo bài KB bằng AI</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">Nhập chủ đề → Claude Sonnet viết bài kiến thức đầy đủ → xem trước, chỉnh sửa rồi mới lưu vào KB.</p>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <input type="text" id="aiTopicInput" placeholder="Vd: Bệnh héo xanh vi khuẩn, Kỹ thuật bón phân, Phòng trừ bọ trĩ..."
+        style="flex:1;border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;"
+        onkeydown="if(event.key==='Enter') generateKbArticle()" />
+      <button class="btn" onclick="generateKbArticle()" id="generateBtn">Tạo bài</button>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+      <button onclick="document.getElementById('aiTopicInput').value='Bệnh héo xanh vi khuẩn trên cà chua'" style="font-size:11px;padding:4px 10px;border:1px solid #c8e6c9;border-radius:12px;background:#f1f8f1;color:#2e7d32;cursor:pointer;">Héo xanh</button>
+      <button onclick="document.getElementById('aiTopicInput').value='Bệnh mốc sương trên cà chua'" style="font-size:11px;padding:4px 10px;border:1px solid #c8e6c9;border-radius:12px;background:#f1f8f1;color:#2e7d32;cursor:pointer;">Mốc sương</button>
+      <button onclick="document.getElementById('aiTopicInput').value='Kỹ thuật bón phân cho cà chua'" style="font-size:11px;padding:4px 10px;border:1px solid #c8e6c9;border-radius:12px;background:#f1f8f1;color:#2e7d32;cursor:pointer;">Bón phân</button>
+      <button onclick="document.getElementById('aiTopicInput').value='Phòng trừ bọ trĩ trên cà chua'" style="font-size:11px;padding:4px 10px;border:1px solid #c8e6c9;border-radius:12px;background:#f1f8f1;color:#2e7d32;cursor:pointer;">Bọ trĩ</button>
+      <button onclick="document.getElementById('aiTopicInput').value='Kỹ thuật tưới nước cho cà chua mùa khô'" style="font-size:11px;padding:4px 10px;border:1px solid #c8e6c9;border-radius:12px;background:#f1f8f1;color:#2e7d32;cursor:pointer;">Mùa khô</button>
+      <button onclick="document.getElementById('aiTopicInput').value='Cách trồng và chăm sóc cà chua trong nhà lưới'" style="font-size:11px;padding:4px 10px;border:1px solid #c8e6c9;border-radius:12px;background:#f1f8f1;color:#2e7d32;cursor:pointer;">Nhà lưới</button>
+    </div>
+    <div id="aiGenStatus" style="font-size:13px;color:#888;min-height:18px;margin-bottom:8px;"></div>
+
+    <div id="aiPreviewArea" style="display:none;">
+      <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:6px;">Xem trước — chỉnh sửa trực tiếp trước khi lưu:</div>
+      <input type="text" id="aiTitleInput" placeholder="Tiêu đề bài viết"
+        style="width:100%;box-sizing:border-box;border:1.5px solid #a5d6a7;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;font-weight:600;outline:none;background:#fff;margin-bottom:8px;" />
+      <textarea id="aiContentInput" rows="18"
+        style="width:100%;box-sizing:border-box;border:1.5px solid #a5d6a7;border-radius:10px;padding:12px 14px;font-size:13px;font-family:monospace;outline:none;background:#fff;resize:vertical;line-height:1.7;"></textarea>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+        <button class="btn" onclick="saveKbArticle()" id="saveKbBtn" style="background:#2e7d32;">Lưu vào KB</button>
+        <button onclick="document.getElementById('aiPreviewArea').style.display='none';document.getElementById('aiGenStatus').textContent='';"
+          style="padding:8px 16px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer;font-size:13px;color:#666;">Huỷ</button>
+        <span style="font-size:12px;color:#aaa;">Nội dung đã chỉnh sửa sẽ được lưu đúng như trên</span>
+      </div>
+    </div>
+  </div>
+
   <!-- Log -->
   <div class="log" id="log"></div>
 

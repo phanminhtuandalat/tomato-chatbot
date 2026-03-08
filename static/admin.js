@@ -673,6 +673,84 @@ async function loadFeedback() {
     </div>`).join('');
 }
 
+// ── Tạo bài KB bằng AI ───────────────────────────────────────────────────────
+
+async function generateKbArticle() {
+  const topic = document.getElementById('aiTopicInput').value.trim();
+  if (!topic) { alert('Vui lòng nhập chủ đề trước'); return; }
+
+  const btn    = document.getElementById('generateBtn');
+  const status = document.getElementById('aiGenStatus');
+  btn.disabled = true;
+  btn.textContent = 'Đang tạo...';
+  status.style.color = '#888';
+  status.textContent = 'AI đang viết bài — thường mất 15-30 giây...';
+  document.getElementById('aiPreviewArea').style.display = 'none';
+
+  try {
+    const res = await fetch('/admin/generate-kb-article', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ topic }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('aiTitleInput').value   = data.title;
+      document.getElementById('aiContentInput').value = data.content;
+      document.getElementById('aiPreviewArea').style.display = 'block';
+      status.style.color = '#2e7d32';
+      status.textContent = 'Bài đã tạo xong — xem lại, chỉnh sửa nếu cần, rồi bấm Lưu vào KB.';
+    } else {
+      status.style.color = '#c62828';
+      status.textContent = 'Lỗi: ' + (data.error || 'Không xác định');
+    }
+  } catch (e) {
+    status.style.color = '#c62828';
+    status.textContent = 'Lỗi kết nối: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Tạo bài';
+  }
+}
+
+async function saveKbArticle() {
+  const title   = document.getElementById('aiTitleInput').value.trim();
+  const content = document.getElementById('aiContentInput').value.trim();
+  if (!title || content.length < 100) {
+    alert('Tiêu đề hoặc nội dung quá ngắn (tối thiểu 100 ký tự)');
+    return;
+  }
+
+  const btn = document.getElementById('saveKbBtn');
+  btn.disabled = true;
+  btn.textContent = 'Đang lưu...';
+
+  try {
+    const res = await fetch('/admin/save-kb-article', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ title, content }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      writeLog(`Đã lưu bài KB: ${data.filename} (${data.chars.toLocaleString()} ký tự)`);
+      document.getElementById('aiPreviewArea').style.display = 'none';
+      document.getElementById('aiGenStatus').textContent = '';
+      document.getElementById('aiTopicInput').value = '';
+      loadDocs();
+    } else {
+      alert('Lưu thất bại: ' + (data.error || 'Không xác định'));
+    }
+  } catch (e) {
+    alert('Lỗi kết nối: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Lưu vào KB';
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 loadDocs();
 loadEvolution();
