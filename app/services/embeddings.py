@@ -47,6 +47,56 @@ EMBED_ENABLED = bool(_API_KEY)
 
 _client = None
 
+# ---------------------------------------------------------------------------
+# FAISS index cache — rebuild từ SQLite khi cần, search O(logN) thay O(N)
+# ---------------------------------------------------------------------------
+
+_faiss_index = None          # faiss.IndexFlatIP hoặc None nếu chưa build
+_faiss_meta: list[dict] = [] # metadata song song với index (source, title, content)
+_faiss_dirty = True          # True → cần rebuild trước lần search tiếp theo
+
+
+def _build_faiss_index() -> bool:
+    """Load toàn bộ vectors từ SQLite, build FAISS IndexFlatIP (cosine qua normalize_L2).
+    Trả về True nếu build thành công, False nếu faiss chưa cài hoặc DB trống.
+    """
+    global _faiss_index, _faiss_meta, _faiss_dirty
+    try:
+        import faiss
+    except ImportError:
+        log.debug("faiss-cpu chưa được cài — dùng numpy fallback")
+        _faiss_dirty = False
+        return False
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT source, title, content, embedding FROM chunks"
+        ).fetchall()
+
+    if not rows:
+        _faiss_index = None
+        _faiss_meta  = []
+        _faiss_dirty = False
+        return True
+
+    matrix = np.stack([_from_blob(r["embedding"]) for r in rows]).astype(np.float32)
+    faiss.normalize_L2(matrix)  # normalize in-place → inner product = cosine
+
+    index = faiss.IndexFlatIP(EMBED_DIMS)
+    index.add(matrix)
+
+    _faiss_index = index
+    _faiss_meta  = [dict(r) for r in rows]
+    _faiss_dirty = False
+    log.info("FAISS index built: %d vectors", index.ntotal)
+    return True
+
+
+def _invalidate_faiss() -> None:
+    """Đánh dấu index cần rebuild — gọi sau mỗi index_document()."""
+    global _faiss_dirty
+    _faiss_dirty = True
+
 
 def _get_client():
     global _client
@@ -188,51 +238,68 @@ async def index_document(source: str, doc_title: str, content: str,
             log.error("Embedding lỗi chunk %s: %s", chunk["title"], e)
 
     log.info("Indexed %s: %d chunks", source, count)
+    _invalidate_faiss()  # FAISS cần rebuild lần search tiếp theo
     return count
 
 
 async def vector_search(query: str, top_k: int = 4) -> list[dict]:
-    """
-    Tìm kiếm bằng cosine similarity.
-    Load tất cả vectors từ DB vào numpy — đủ nhanh cho <20.000 chunks.
+    """Tìm kiếm bằng cosine similarity.
+    Dùng FAISS (O(logN)) nếu có, fallback numpy full-scan (O(N)) nếu không.
     """
     if not EMBED_ENABLED:
         return []
 
     try:
-        query_vec  = np.array(await _embed(query), dtype=np.float32)
-        query_norm = float(np.linalg.norm(query_vec))
-        if query_norm == 0:
+        query_vec = np.array(await _embed(query), dtype=np.float32)
+        if np.linalg.norm(query_vec) == 0:
             return []
 
+        # ── FAISS path ───────────────────────────────────────────────────────
+        try:
+            import faiss as _faiss
+
+            if _faiss_dirty or _faiss_index is None:
+                _build_faiss_index()
+
+            if _faiss_index is not None and _faiss_meta:
+                q = query_vec.copy().reshape(1, -1)
+                _faiss.normalize_L2(q)
+                scores, indices = _faiss_index.search(q, top_k)
+                results = []
+                for score, idx in zip(scores[0], indices[0]):
+                    if idx < 0 or float(score) < SCORE_CUTOFF:
+                        continue
+                    r = _faiss_meta[idx]
+                    results.append({
+                        "source":  r["source"],
+                        "title":   r["title"],
+                        "content": r["content"],
+                        "score":   float(score),
+                    })
+                return results
+        except ImportError:
+            pass  # faiss chưa cài → dùng numpy fallback bên dưới
+
+        # ── Numpy fallback (full-scan) ────────────────────────────────────────
         with get_conn() as conn:
             rows = conn.execute(
                 "SELECT source, title, content, embedding FROM chunks"
             ).fetchall()
-
         if not rows:
             return []
 
-        # Vectorize tất cả embeddings
-        matrix = np.stack([_from_blob(r["embedding"]) for r in rows])  # (N, 1536)
-        norms  = np.linalg.norm(matrix, axis=1)
+        matrix     = np.stack([_from_blob(r["embedding"]) for r in rows])
+        query_norm = float(np.linalg.norm(query_vec))
+        norms      = np.linalg.norm(matrix, axis=1)
         norms[norms == 0] = 1e-10
-
         scores = (matrix @ query_vec) / (norms * query_norm)
 
-        # Lấy top_k kết quả trên ngưỡng
         top_idx = scores.argsort()[::-1][:top_k]
-        results = []
-        for idx in top_idx:
-            if scores[idx] >= SCORE_CUTOFF:
-                r = rows[idx]
-                results.append({
-                    "source":  r["source"],
-                    "title":   r["title"],
-                    "content": r["content"],
-                    "score":   float(scores[idx]),
-                })
-        return results
+        return [
+            {"source": rows[i]["source"], "title": rows[i]["title"],
+             "content": rows[i]["content"], "score": float(scores[i])}
+            for i in top_idx if scores[i] >= SCORE_CUTOFF
+        ]
 
     except Exception as e:
         log.error("vector_search lỗi: %s", e)
