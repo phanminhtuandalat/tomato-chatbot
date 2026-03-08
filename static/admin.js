@@ -696,29 +696,42 @@ async function generateKbArticle() {
     });
     if (res.status === 401) {
       status.style.color = '#c62828';
-      status.textContent = 'Lỗi xác thực — hãy tải lại trang và đăng nhập lại.';
+      status.textContent = 'Lỗi xác thực — tải lại trang và đăng nhập lại.';
       return;
     }
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch {
+    if (!res.ok) {
+      const errText = await res.text();
       status.style.color = '#c62828';
-      status.textContent = `Lỗi server (HTTP ${res.status}): ${text.slice(0, 200)}`;
+      status.textContent = `Lỗi server HTTP ${res.status}: ${errText.slice(0, 150)}`;
       return;
     }
-    if (data.ok) {
-      document.getElementById('aiTitleInput').value   = data.title;
-      document.getElementById('aiContentInput').value = data.content;
-      document.getElementById('aiPreviewArea').style.display = 'block';
-      status.style.color = '#2e7d32';
-      status.textContent = 'Bài đã tạo xong — xem lại, chỉnh sửa nếu cần, rồi bấm Lưu vào KB.';
-    } else {
-      status.style.color = '#c62828';
-      status.textContent = 'Lỗi: ' + (data.error || 'Không xác định');
+
+    // Stream plain text — hiện dần vào textarea
+    const contentEl = document.getElementById('aiContentInput');
+    const titleEl   = document.getElementById('aiTitleInput');
+    document.getElementById('aiPreviewArea').style.display = 'block';
+    contentEl.value = '';
+    titleEl.value   = '';
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let full = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      full += decoder.decode(value, { stream: true });
+      contentEl.value = full;
+      // Tự động điền tiêu đề từ dòng # đầu tiên
+      const m = full.match(/^#+ (.+)/m);
+      if (m) titleEl.value = m[1].trim();
     }
+
+    status.style.color = '#2e7d32';
+    status.textContent = 'Bài đã tạo xong — xem lại, chỉnh sửa nếu cần, rồi bấm Lưu vào KB.';
   } catch (e) {
     status.style.color = '#c62828';
-    status.textContent = 'Lỗi kết nối (có thể timeout): ' + e.message;
+    status.textContent = 'Lỗi: ' + e.message;
+    document.getElementById('aiPreviewArea').style.display = 'none';
   } finally {
     btn.disabled = false;
     btn.textContent = 'Tạo bài';

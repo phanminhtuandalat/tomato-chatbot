@@ -400,8 +400,8 @@ class SaveKbRequest(BaseModel):
 
 @router.post("/admin/generate-kb-article")
 async def generate_kb_article(req: GenerateKbRequest, _: None = Depends(require_admin)):
-    """Dùng Claude Sonnet viết bài KB từ chủ đề — trả về nội dung để admin xem trước."""
-    import re
+    """Dùng Claude Sonnet viết bài KB từ chủ đề — stream plain text để tránh timeout."""
+    from fastapi.responses import StreamingResponse as _SR
     topic = req.topic.strip()[:200]
     if not topic:
         return JSONResponse({"ok": False, "error": "Chưa nhập chủ đề"})
@@ -434,19 +434,20 @@ Cấu trúc bài (dùng Markdown):
 
 Chỉ trả về nội dung bài viết Markdown, không thêm lời mở đầu hay kết."""
 
-    try:
-        from app.services.llm import _call, OPENROUTER_MODEL
-        content = await _call(
-            [{"role": "user", "content": prompt}],
-            model=OPENROUTER_MODEL,
-            max_tokens=900,
-        )
-        content = content.strip()
-        title_match = re.match(r"#+ (.+)", content)
-        title = title_match.group(1).strip() if title_match else topic
-        return JSONResponse({"ok": True, "title": title, "content": content})
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)})
+    async def _stream():
+        try:
+            from app.services.llm import _call_stream, OPENROUTER_MODEL
+            async for chunk in _call_stream(
+                [{"role": "user", "content": prompt}],
+                model=OPENROUTER_MODEL,
+                max_tokens=1500,
+            ):
+                yield chunk
+        except Exception as e:
+            yield f"\n\n[LỖI: {e}]"
+
+    return _SR(_stream(), media_type="text/plain; charset=utf-8",
+               headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
 
 
 @router.post("/admin/save-kb-article")
