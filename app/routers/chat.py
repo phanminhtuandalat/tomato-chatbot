@@ -587,20 +587,26 @@ TIP_APPROVE_PTS = 20  # điểm thêm khi admin approve (tip pending)
 _DATA_DIR = __import__("pathlib").Path(__file__).parent.parent.parent / "data"
 
 
-def _save_tip_as_doc(tip_id: int, title: str, content: str) -> None:
+async def _save_tip_as_doc(tip_id: int, title: str, content: str) -> None:
     """Lưu tip đã duyệt thành file .md trong knowledge base."""
     import re, unicodedata
     from app.services import rag as rag_module
+    from app.services.embeddings import index_document, EMBED_ENABLED
     name = unicodedata.normalize("NFD", title.lower())
     name = "".join(c for c in name if unicodedata.category(c) != "Mn")
     name = re.sub(r"[^\w\s-]", "", name)
     name = re.sub(r"[\s-]+", "_", name).strip("_")[:60] or "community"
-    out = _DATA_DIR / f"{name}.md"
-    out.write_text(
-        f"# {title}\n\n> Nguồn: Kinh nghiệm cộng đồng (#{tip_id})\n\n{content}\n",
-        encoding="utf-8",
-    )
+    source = name
+    md_content = f"# {title}\n\n> Nguồn: Kinh nghiệm cộng đồng (#{tip_id})\n\n{content}\n"
+    out = _DATA_DIR / f"{source}.md"
+    out.write_text(md_content, encoding="utf-8")
     rag_module.rag.reload()
+    # Cập nhật vector index cho tip mới (chỉ index file này, không cần index lại toàn bộ)
+    if EMBED_ENABLED:
+        try:
+            await index_document(source, title, md_content)
+        except Exception as e:
+            log.warning("index_document tip %s lỗi: %s", source, e)
 
 
 @router.post("/api/community-tips")
@@ -649,7 +655,7 @@ async def api_submit_tip(req: CommunityTipRequest, request: Request):
     if action == "approve":
         # AI tự tin cao → đưa vào KB ngay, thưởng thêm điểm ngay luôn
         approve_tip(tip_id)
-        _save_tip_as_doc(tip_id, title, content)
+        await _save_tip_as_doc(tip_id, title, content)
         pts2 = add_points(device_id, "tip_approved", TIP_APPROVE_PTS)
         # Cộng gộp điểm hai lần
         combined = {
