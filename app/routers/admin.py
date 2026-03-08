@@ -439,7 +439,7 @@ Chỉ trả về nội dung bài viết Markdown, không thêm lời mở đầu
         content = await _call(
             [{"role": "user", "content": prompt}],
             model=OPENROUTER_MODEL,
-            max_tokens=1500,
+            max_tokens=900,
         )
         content = content.strip()
         title_match = re.match(r"#+ (.+)", content)

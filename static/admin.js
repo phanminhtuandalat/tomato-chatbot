@@ -694,7 +694,18 @@ async function generateKbArticle() {
       credentials: 'include',
       body: JSON.stringify({ topic }),
     });
-    const data = await res.json();
+    if (res.status === 401) {
+      status.style.color = '#c62828';
+      status.textContent = 'Lỗi xác thực — hãy tải lại trang và đăng nhập lại.';
+      return;
+    }
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch {
+      status.style.color = '#c62828';
+      status.textContent = `Lỗi server (HTTP ${res.status}): ${text.slice(0, 200)}`;
+      return;
+    }
     if (data.ok) {
       document.getElementById('aiTitleInput').value   = data.title;
       document.getElementById('aiContentInput').value = data.content;
@@ -707,7 +718,7 @@ async function generateKbArticle() {
     }
   } catch (e) {
     status.style.color = '#c62828';
-    status.textContent = 'Lỗi kết nối: ' + e.message;
+    status.textContent = 'Lỗi kết nối (có thể timeout): ' + e.message;
   } finally {
     btn.disabled = false;
     btn.textContent = 'Tạo bài';
