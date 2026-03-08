@@ -12,6 +12,7 @@ import httpx
 from app.config import (
     OPENROUTER_API_KEY, OPENROUTER_API_KEY_2,
     OPENROUTER_MODEL, OPENROUTER_MODEL_FAST, OPENROUTER_MODEL_VISION,
+    OPENROUTER_MODEL_FALLBACK,
     MAX_DAILY_SONNET_CALLS, MAX_DAILY_HAIKU_CALLS,
 )
 
@@ -282,7 +283,9 @@ async def chat_stream(
         messages.extend(_trim_history(history))
     messages.append({"role": "user", "content": user_content})
 
-    async for chunk in _call_stream(messages, model=OPENROUTER_MODEL_FAST):
+    # Khi không có KB: dùng model thông minh hơn để trả lời từ kiến thức chung
+    model = OPENROUTER_MODEL_FALLBACK if conservative else OPENROUTER_MODEL_FAST
+    async for chunk in _call_stream(messages, model=model):
         yield chunk
 
 
@@ -411,8 +414,9 @@ async def chat(
         messages.extend(_trim_history(history))
     messages.append({"role": "user", "content": user_content})
 
-    # Text: dùng model nhanh/rẻ (Haiku)
-    answer = await _call(messages, model=OPENROUTER_MODEL_FAST)
+    # Khi không có KB: dùng model thông minh hơn; bình thường: Haiku (nhanh/rẻ)
+    model = OPENROUTER_MODEL_FALLBACK if conservative else OPENROUTER_MODEL_FAST
+    answer = await _call(messages, model=model)
 
     if cache_key:
         _cache_set(cache_key, answer)
