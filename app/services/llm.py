@@ -236,6 +236,7 @@ async def chat_stream(
     history: list[dict] | None = None,
     region: str = "",
     weather: str = "",
+    conservative: bool = False,
 ):
     """Streaming version of chat(). Async generator yields text chunks."""
     question = question[:MAX_QUESTION_CHARS]
@@ -265,6 +266,13 @@ async def chat_stream(
             f"Câu hỏi: {question}\n\n"
             f"---\nTài liệu tham khảo (dùng số liệu này, không thay bằng số liệu khác):\n{context}\n---\n\n"
             f"Trả lời dựa trên tài liệu trên."
+        )
+    elif conservative:
+        user_content = (
+            f"[Lưu ý: Không có tài liệu tham khảo trong hệ thống. Nếu cần số liệu cụ thể "
+            f"(liều lượng, mật độ, khoảng cách), hãy nói rõ đây là ước tính chung "
+            f"và bà con nên xác nhận với cán bộ khuyến nông hoặc nhà cung cấp.]\n\n"
+            f"Câu hỏi: {question}"
         )
     else:
         user_content = question
@@ -350,6 +358,7 @@ async def chat(
     history: list[dict] | None = None,
     region: str = "",
     weather: str = "",
+    conservative: bool = False,
 ) -> str:
     """Trả lời câu hỏi của nông dân, có kèm context RAG và lịch sử hội thoại."""
     question = question[:MAX_QUESTION_CHARS]
@@ -386,6 +395,13 @@ async def chat(
             f"Câu hỏi: {question}\n\n"
             f"---\nTài liệu tham khảo (dùng số liệu này, không thay bằng số liệu khác):\n{context}\n---\n\n"
             f"Trả lời dựa trên tài liệu trên. Nếu tài liệu có số liệu cụ thể (mật độ, khoảng cách, liều lượng), trích dẫn đúng."
+        )
+    elif conservative:
+        user_content = (
+            f"[Lưu ý: Không có tài liệu tham khảo trong hệ thống. Nếu cần số liệu cụ thể "
+            f"(liều lượng, mật độ, khoảng cách), hãy nói rõ đây là ước tính chung "
+            f"và bà con nên xác nhận với cán bộ khuyến nông hoặc nhà cung cấp.]\n\n"
+            f"Câu hỏi: {question}"
         )
     else:
         user_content = question

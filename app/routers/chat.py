@@ -22,13 +22,30 @@ from app.services.embeddings import vector_search, EMBED_ENABLED
 
 _RRF_K = 60  # hằng số chuẩn của Reciprocal Rank Fusion
 
+# Từ khoá nông nghiệp để phát hiện câu hỏi ngoài phạm vi
+_AGRI_KEYWORDS = frozenset([
+    "cà chua", "tomato", "bệnh", "sâu", "rầy", "nấm", "khuẩn", "virus",
+    "thuốc", "phân", "trồng", "thu hoạch", "giống", "tưới", "bón", "rễ",
+    "lá", "quả", "thân", "hạt", "ươm", "mầm", "ghép", "vườn", "ruộng",
+    "nông", "rau", "cây", "canh tác", "mùa vụ", "héo", "vàng lá", "đốm",
+    "thối", "cắt tỉa", "phun", "thời tiết", "mưa", "nắng", "nhiệt độ",
+    "độ ẩm", "khí hậu", "kỹ thuật", "trang trại", "liều lượng", "phòng bệnh",
+])
 
-async def _hybrid_search(question: str, top_k: int = 4) -> tuple[str, list[dict]]:
+
+def _is_agri_question(question: str) -> bool:
+    """Kiểm tra nhanh xem câu hỏi có liên quan đến nông nghiệp không."""
+    q = question.lower()
+    return any(kw in q for kw in _AGRI_KEYWORDS)
+
+
+async def _hybrid_search(question: str, top_k: int = 4) -> tuple[str, list[dict], bool]:
     """Hybrid BM25 + Vector search với Reciprocal Rank Fusion.
 
     Chạy cả hai song song, kết hợp rank bằng RRF:
       score(chunk) = Σ  1 / (K + rank_i)
-    Trả về (context_str, sources_list).
+    Trả về (context_str, sources_list, has_kb_context).
+    has_kb_context = True khi KB thực sự có kết quả liên quan.
     """
     fetch = top_k * 2  # lấy nhiều candidate hơn để RRF chọn lọc tốt hơn
 
@@ -42,7 +59,8 @@ async def _hybrid_search(question: str, top_k: int = 4) -> tuple[str, list[dict]
 
     # Fallback thuần BM25 nếu chưa có vector index
     if not vec_results:
-        return rag_module.rag.search_with_meta(question, top_k=top_k)
+        ctx, srcs = rag_module.rag.search_with_meta(question, top_k=top_k)
+        return ctx, srcs, bool(ctx)
 
     # --- RRF ---
     rrf_scores: dict[str, float] = {}
@@ -75,7 +93,7 @@ async def _hybrid_search(question: str, top_k: int = 4) -> tuple[str, list[dict]
                 "title": chunk.get("doc_title") or chunk.get("title") or src.replace("_", " "),
             })
 
-    return "\n\n---\n\n".join(context_parts), sources
+    return "\n\n---\n\n".join(context_parts), sources, bool(top_keys)
 from app.database import (
     save_feedback, save_question, get_premium_quota, consume_premium, redeem_code,
     save_user_region, get_user_region, save_community_tip, save_image_submission,
@@ -214,8 +232,9 @@ async def api_chat(req: ChatRequest, request: Request):
         )
 
     context = ""
+    has_kb = False
     if question:
-        context, _ = await _hybrid_search(question)
+        context, _, has_kb = await _hybrid_search(question)
 
     # Load lịch sử hội thoại từ DB (server-side session)
     history = get_session_messages(device_id)
@@ -228,6 +247,7 @@ async def api_chat(req: ChatRequest, request: Request):
             history=history,
             region=region_name,
             weather=weather,
+            conservative=not has_kb and not image,
         )
     except LLMError as e:
         log.error("LLMError [%s]", e)
@@ -279,8 +299,9 @@ async def api_chat_stream(req: ChatRequest, request: Request):
 
     rag_sources: list[dict] = []
     context = ""
+    has_kb = False
     if question:
-        context, rag_sources = await _hybrid_search(question)
+        context, rag_sources, has_kb = await _hybrid_search(question)
 
     history = get_session_messages(device_id)
 
@@ -293,8 +314,20 @@ async def api_chat_stream(req: ChatRequest, request: Request):
         if question:
             tool_parts: list[str] = []
 
-            # Web search — CHỈ khi user bật toggle tìm kiếm
-            if search_enabled:
+            # Phát hiện câu hỏi ngoài phạm vi: không có KB + không có từ khoá nông nghiệp
+            # → từ chối ngay, không gọi web search hay LLM
+            if not has_kb and not image and not _is_agri_question(question):
+                msg = (
+                    "Xin lỗi bà con, tôi chỉ hỗ trợ tư vấn kỹ thuật trồng cà chua và rau màu. "
+                    "Bà con có câu hỏi nào về cây trồng không ạ?"
+                )
+                yield f"data: {_json.dumps({'t': 'c', 'v': msg}, ensure_ascii=False)}\n\n"
+                yield f"data: {_json.dumps({'t': 'done', 'submission_id': None, 'sources': []}, ensure_ascii=False)}\n\n"
+                return
+
+            # Web search — user bật toggle hoặc KB trống (tự động fallback)
+            run_web = search_enabled or (not has_kb and not image)
+            if run_web:
                 yield f"data: {_json.dumps({'t': 'tool', 'name': 'web_search', 'q': question[:80]}, ensure_ascii=False)}\n\n"
                 try:
                     web_result = await tools_module.web_search(question)
@@ -325,11 +358,15 @@ async def api_chat_stream(req: ChatRequest, request: Request):
                         f"cuối câu dạng *(Nguồn: tên-trang)*]\n{web_block}"
                     )
 
+        # Conservative mode: không có KB lẫn web → LLM phải nói rõ không chắc
+        conservative = bool(question) and not has_kb and not effective_context and not image
+
         # ── Phase 1: Stream LLM answer ───────────────────────────────────────
         try:
             async for chunk in llm.chat_stream(
                 question=question, context=effective_context, image_base64=image,
                 history=history, region=region_name, weather=weather,
+                conservative=conservative,
             ):
                 full_answer.append(chunk)
                 yield f"data: {_json.dumps({'t': 'c', 'v': chunk}, ensure_ascii=False)}\n\n"
