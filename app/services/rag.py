@@ -165,13 +165,14 @@ class RAGService:
         if not ranked_all:
             return []
 
-        # Score threshold: loại chunk có điểm thấp hơn 50% điểm cao nhất
+        # Score threshold: loại chunk có điểm thấp hơn 65% điểm cao nhất
+        # (tăng từ 0.5 → 0.65 để tránh tài liệu chỉ khớp một phần leo vào context)
         top_score = ranked_all[0][0]
-        min_score = top_score * 0.5
+        min_score = top_score * 0.65
 
-        # Token coverage: ít nhất 40% query tokens phải xuất hiện trong chunk
+        # Token coverage: ít nhất 50% query tokens phải xuất hiện trong chunk
         unique_query = set(query_tokens)
-        min_coverage = max(1, int(len(unique_query) * 0.4))
+        min_coverage = max(1, int(len(unique_query) * 0.5))
 
         # Lọc: score threshold + token coverage + max_per_source
         result: list[tuple[float, dict]] = []

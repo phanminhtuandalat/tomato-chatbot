@@ -53,11 +53,15 @@ async def _hybrid_search(question: str, top_k: int = 4) -> tuple[str, list[dict]
     bm25_ranked = rag_module.rag._rank(question, top_k=fetch)
 
     # --- Vector (nếu đã index) ---
+    # Chỉ dùng vector results khi top score đủ cao (≥ 0.50) — tránh document
+    # không liên quan nhưng có trong FAISS bị boost vào context sai chủ đề.
     vec_results: list[dict] = []
     if EMBED_ENABLED:
-        vec_results = await vector_search(question, top_k=fetch)
+        raw_vec = await vector_search(question, top_k=fetch)
+        if raw_vec and raw_vec[0].get("score", 0) >= 0.50:
+            vec_results = raw_vec
 
-    # Fallback thuần BM25 nếu chưa có vector index
+    # Fallback thuần BM25 nếu chưa có vector index hoặc vector không đủ liên quan
     if not vec_results:
         ctx, srcs = rag_module.rag.search_with_meta(question, top_k=top_k)
         return ctx, srcs, bool(ctx)
@@ -77,8 +81,9 @@ async def _hybrid_search(question: str, top_k: int = 4) -> tuple[str, list[dict]
         if key not in chunk_store:
             chunk_store[key] = res  # vector result chưa có doc_title → dùng title
 
-    # Chọn top_k với giới hạn đa dạng nguồn (tối đa 2 chunks/nguồn)
-    MAX_PER_SRC = 2
+    # Chọn top_k với giới hạn đa dạng nguồn (tối đa 1 chunk/nguồn)
+    # → buộc lấy từ nhiều tài liệu khác nhau, tránh 1 doc chiếm hết context
+    MAX_PER_SRC = 1
     src_count: dict[str, int] = {}
     top_keys: list[str] = []
     for key in sorted(rrf_scores, key=lambda k: -rrf_scores[k]):
