@@ -943,6 +943,57 @@ async function loadGapByRegion() {
   } catch { el.innerHTML = '<div class="empty">Lỗi tải dữ liệu</div>'; }
 }
 
+// ── Dán văn bản trực tiếp ────────────────────────────────────────────────────
+
+function updatePasteCount() {
+  const len = (document.getElementById('pasteContent').value || '').length;
+  document.getElementById('pasteCharCount').textContent = len.toLocaleString('vi-VN') + ' ký tự';
+}
+
+async function savePasteText() {
+  const content = (document.getElementById('pasteContent').value || '').trim();
+  const title   = (document.getElementById('pasteTitle').value || '').trim();
+  const status  = document.getElementById('pasteStatus');
+  const btn     = document.getElementById('pasteSaveBtn');
+
+  if (content.length < 20) {
+    status.style.color = '#ef5350';
+    status.textContent = 'Vui lòng dán ít nhất 20 ký tự nội dung.';
+    return;
+  }
+
+  btn.disabled = true;
+  status.style.color = '#888';
+  status.textContent = 'Đang lưu...';
+
+  try {
+    const res  = await fetch('/admin/paste-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ title, content }),
+    });
+    if (res.status === 401) { status.style.color='#ef5350'; status.textContent='Cần đăng nhập lại.'; return; }
+    const data = await res.json();
+    if (data.ok) {
+      status.style.color = '#2e7d32';
+      status.textContent = `Đã lưu: ${data.filename} (${data.chars.toLocaleString('vi-VN')} ký tự)${data.indexed ? ' · đã vector-index' : ''}`;
+      document.getElementById('pasteContent').value = '';
+      document.getElementById('pasteTitle').value   = '';
+      updatePasteCount();
+      loadDocs();
+    } else {
+      status.style.color = '#ef5350';
+      status.textContent = 'Lỗi: ' + (data.error || 'Không xác định');
+    }
+  } catch (e) {
+    status.style.color = '#ef5350';
+    status.textContent = 'Lỗi kết nối: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 loadDocs();
 loadEvolution();

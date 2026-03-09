@@ -111,6 +111,35 @@ async def upload_file(file: UploadFile = File(...), _: None = Depends(require_ad
         tmp.unlink(missing_ok=True)
 
 
+class PasteRequest(BaseModel):
+    content: str
+    title: str = ""
+
+@router.post("/admin/paste-text")
+async def paste_text(req: PasteRequest, _: None = Depends(require_admin)):
+    """Lưu văn bản dán trực tiếp vào KB."""
+    content = req.content.strip()
+    if len(content) < 20:
+        return JSONResponse({"ok": False, "error": "Nội dung quá ngắn (tối thiểu 20 ký tự)"})
+
+    # Tự trích tiêu đề từ dòng đầu nếu không cung cấp
+    title = req.title.strip()
+    if not title:
+        first_line = content.splitlines()[0].lstrip("#").strip()
+        title = first_line[:80] if first_line else "Tài liệu dán"
+
+    try:
+        out = _save_doc(title, content, "paste")
+        rag_module.rag.reload()
+        indexed = False
+        if EMBED_ENABLED:
+            await index_document(out.stem, title, out.read_text(encoding="utf-8"))
+            indexed = True
+        return JSONResponse({"ok": True, "filename": out.name, "chars": len(content), "indexed": indexed})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 class UrlRequest(BaseModel):
     url: str
 

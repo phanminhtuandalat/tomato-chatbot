@@ -54,6 +54,25 @@
     </div>
   </div>
 
+  <!-- Dán văn bản trực tiếp -->
+  <div class="card">
+    <h2>📋 Dán văn bản trực tiếp</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">Sao chép bất kỳ đoạn văn bản nào (từ web, sách, ghi chú...) rồi dán vào đây để lưu vào KB.</p>
+    <input type="text" id="pasteTitle" placeholder="Tiêu đề tài liệu (tuỳ chọn — để trống sẽ tự trích từ nội dung)"
+      style="width:100%;box-sizing:border-box;border:1.5px solid #c8e6c9;border-radius:10px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none;background:#f9fbe7;margin-bottom:10px;" />
+    <textarea id="pasteContent" rows="10" placeholder="Dán nội dung vào đây...&#10;&#10;Có thể là: kỹ thuật canh tác, kinh nghiệm bà con, hướng dẫn từ tài liệu, thông tin sản phẩm..."
+      style="width:100%;box-sizing:border-box;border:1.5px solid #c8e6c9;border-radius:10px;padding:12px 14px;font-size:13px;font-family:inherit;outline:none;background:#f9fbe7;resize:vertical;line-height:1.7;" oninput="updatePasteCount()"></textarea>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
+      <span id="pasteCharCount" style="font-size:12px;color:#aaa;">0 ký tự</span>
+      <div style="display:flex;gap:8px;">
+        <button onclick="document.getElementById('pasteContent').value='';document.getElementById('pasteTitle').value='';updatePasteCount();"
+          style="padding:8px 14px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer;font-size:13px;color:#888;">Xoá</button>
+        <button class="btn" onclick="savePasteText()" id="pasteSaveBtn">Lưu vào KB</button>
+      </div>
+    </div>
+    <div id="pasteStatus" style="margin-top:10px;font-size:13px;min-height:18px;"></div>
+  </div>
+
   <!-- Tạo bài KB bằng AI -->
   <div class="card">
     <h2>🤖 Tạo bài KB bằng AI</h2>
@@ -354,6 +373,6 @@
   </div>
 </div>
 
-<script src="/static/admin.js?v=20260309_a"></script>
+<script src="/static/admin.js?v=20260309_b"></script>
 </body>
 </html>
