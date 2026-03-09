@@ -100,6 +100,12 @@ from app.database import (
     add_points, get_points, update_tip_ai_result, approve_tip, reject_tip, POINTS_PER_QUESTION,
     check_and_increment_rate, get_daily_rate,
     get_session_messages, save_session_messages, clear_session,
+    check_correction_consensus, get_most_common_correction,
+    apply_expert, get_expert_status, is_expert,
+    save_answer_vote,
+    get_active_missions, increment_mission_progress, complete_mission,
+    save_disease_report, get_disease_map, get_disease_hotspots,
+    get_leaderboard,
 )
 from datetime import datetime as _dt
 from app.services.weather import get_weather, REGION_NAMES
@@ -229,6 +235,7 @@ async def api_chat(req: ChatRequest, request: Request):
             ts=datetime.now().isoformat(timespec="seconds"),
             question=question,
             has_image=bool(image),
+            region=region,
         )
 
     context = ""
@@ -295,13 +302,31 @@ async def api_chat_stream(req: ChatRequest, request: Request):
 
     if question:
         save_question(ts=_dt.now().isoformat(timespec="seconds"),
-                      question=question, has_image=bool(image))
+                      question=question, has_image=bool(image), region=region)
 
     rag_sources: list[dict] = []
     context = ""
     has_kb = False
+
+    # Cảnh báo dịch bệnh từ cộng đồng — chỉ thêm khi câu hỏi liên quan bệnh/sâu
+    _DISEASE_KEYWORDS = frozenset(["bệnh", "sâu", "nấm", "virus", "khuẩn", "héo", "vàng", "đốm",
+                                   "thối", "rầy", "bọ", "nhện", "sùng", "sần", "đốm", "cháy"])
+    disease_warning = ""
+    if question and any(kw in question.lower() for kw in _DISEASE_KEYWORDS):
+        try:
+            hotspots = get_disease_hotspots(days=7)
+            if hotspots and region:
+                region_spots = [h for h in hotspots if h.get("region") == region]
+                if region_spots:
+                    parts = [f"{h['count']} báo cáo bệnh {h['disease']} tại {h['province']}" for h in region_spots[:3]]
+                    disease_warning = f"[Cảnh báo cộng đồng: Đang có {'; '.join(parts)} trong 7 ngày qua]\n\n"
+        except Exception as e:
+            log.debug("get_disease_hotspots lỗi: %s", e)
+
     if question:
         context, rag_sources, has_kb = await _hybrid_search(question)
+        if disease_warning:
+            context = disease_warning + context
 
     history = get_session_messages(device_id)
 
@@ -525,7 +550,8 @@ async def api_correct(req: CorrectionRequest, request: Request):
         return JSONResponse({"ok": True, "points": 0, "questions_added": 0, "current_points": 0})
 
     # Lưu vào community_tips để admin xem xét và bổ sung kiến thức
-    title   = f"Sửa: {req.question[:80]}"
+    topic_hash = f"Sửa: {req.question[:80]}"
+    title   = topic_hash
     content = f"Câu hỏi: {req.question}\n\nCâu trả lời cũ (bị báo sai):\n{req.wrong_answer}\n\nThông tin người dùng cung cấp:\n{req.correction}"
     save_community_tip(
         device_id=device_id, title=title, content=content,
@@ -534,6 +560,27 @@ async def api_correct(req: CorrectionRequest, request: Request):
     await notify.push("pending_review", title)
 
     pts = add_points(device_id, "correction_pending", 3)
+
+    # Kiểm tra consensus — nếu nhiều người sửa cùng chủ đề thì auto-approve
+    bonus_pts = {}
+    try:
+        if check_correction_consensus(topic_hash, threshold=3):
+            tip_data = get_most_common_correction(topic_hash)
+            if tip_data:
+                await _save_tip_as_doc(tip_data["id"], tip_data["title"], tip_data["content"])
+                bonus_pts = add_points(device_id, "correction_consensus", 10)
+                log.info("Correction consensus đạt ngưỡng cho topic: %s", topic_hash)
+    except Exception as e:
+        log.warning("check_correction_consensus lỗi: %s", e)
+
+    if bonus_pts.get("points_added"):
+        combined = {
+            "points_added":    pts.get("points_added", 0) + bonus_pts.get("points_added", 0),
+            "questions_added": pts.get("questions_added", 0) + bonus_pts.get("questions_added", 0),
+            "current_points":  bonus_pts.get("current_points", 0),
+        }
+        return JSONResponse({"ok": True, "consensus": True, **_pts_response(combined)})
+
     return JSONResponse({"ok": True, **_pts_response(pts)})
 
 
@@ -626,6 +673,9 @@ async def api_submit_tip(req: CommunityTipRequest, request: Request):
         region=req.region.strip(),
     )
 
+    # Kiểm tra chuyên gia — expert có ngưỡng tự động duyệt thấp hơn (0.65 thay vì 0.85)
+    user_is_expert = is_expert(device_id)
+
     # AI verification bằng model mạnh
     from app.services.llm import verify_tip
     try:
@@ -636,6 +686,10 @@ async def api_submit_tip(req: CommunityTipRequest, request: Request):
     action     = verdict.get("action", "review")
     confidence = verdict.get("confidence", 0.5)
     reason     = verdict.get("reason", "")
+
+    # Expert boost: nếu confidence >= 0.65 (thay vì 0.85) thì auto-approve
+    if user_is_expert and action == "review" and confidence >= 0.65:
+        action = "approve"
 
     # Cập nhật kết quả AI vào DB
     update_tip_ai_result(tip_id, confidence, reason, action)
@@ -652,19 +706,158 @@ async def api_submit_tip(req: CommunityTipRequest, request: Request):
     # Thưởng điểm khi gửi tip (tối đa 3 lần/ngày)
     pts = add_points(device_id, "tip_submitted", TIP_SUBMIT_PTS, daily_limit=3)
 
+    # Kiểm tra missions — tip khớp mission topic → cộng tiến độ mission
+    mission_bonus = {}
+    try:
+        missions = get_active_missions()
+        for mission in missions:
+            topic_kw = (mission.get("topic") or "").lower()
+            if topic_kw and (topic_kw in title.lower() or topic_kw in content.lower()):
+                full = increment_mission_progress(mission["id"])
+                if full:
+                    complete_mission(mission["id"])
+                    # Thưởng cho người submit tip hoàn thành mission
+                    if mission.get("reward_points", 0) > 0:
+                        mission_bonus = add_points(device_id, "mission_complete", mission["reward_points"])
+                break
+    except Exception as e:
+        log.debug("mission check lỗi: %s", e)
+
     if action == "approve":
         # AI tự tin cao → đưa vào KB ngay, thưởng thêm điểm ngay luôn
         approve_tip(tip_id)
         await _save_tip_as_doc(tip_id, title, content)
         pts2 = add_points(device_id, "tip_approved", TIP_APPROVE_PTS)
-        # Cộng gộp điểm hai lần
+        # Cộng gộp điểm
         combined = {
-            "points_added":    pts["points_added"] + pts2["points_added"],
-            "questions_added": pts["questions_added"] + pts2["questions_added"],
-            "current_points":  pts2["current_points"],
+            "points_added":    pts["points_added"] + pts2["points_added"] + mission_bonus.get("points_added", 0),
+            "questions_added": pts["questions_added"] + pts2["questions_added"] + mission_bonus.get("questions_added", 0),
+            "current_points":  pts2.get("current_points", 0),
         }
-        return JSONResponse({"ok": True, "id": tip_id, "auto_approved": True, **_pts_response(combined)})
+        return JSONResponse({"ok": True, "id": tip_id, "auto_approved": True, "expert_boost": user_is_expert, **_pts_response(combined)})
 
     # review → chờ admin, chỉ thưởng điểm gửi
     await notify.push("pending_review", title)
-    return JSONResponse({"ok": True, "id": tip_id, "pending_review": True, **_pts_response(pts)})
+    extra_pts = {
+        "points_added":    pts["points_added"] + mission_bonus.get("points_added", 0),
+        "questions_added": pts["questions_added"] + mission_bonus.get("questions_added", 0),
+        "current_points":  pts.get("current_points", 0),
+    }
+    return JSONResponse({"ok": True, "id": tip_id, "pending_review": True, **_pts_response(extra_pts)})
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard
+# ---------------------------------------------------------------------------
+
+@router.get("/api/leaderboard")
+async def api_leaderboard():
+    """Top 10 người đóng góp nhiều điểm nhất — device_id được ẩn."""
+    return JSONResponse({"leaderboard": get_leaderboard(limit=10)})
+
+
+# ---------------------------------------------------------------------------
+# Missions
+# ---------------------------------------------------------------------------
+
+@router.get("/api/missions")
+async def api_missions():
+    """Danh sách nhiệm vụ cộng đồng đang active."""
+    return JSONResponse({"missions": get_active_missions()})
+
+
+# ---------------------------------------------------------------------------
+# Vote vùng
+# ---------------------------------------------------------------------------
+
+class VoteRegionalRequest(BaseModel):
+    submission_id: int | None = None
+    question: str = ""
+    vote: int       # 1 = đúng vùng tôi, -1 = không đúng
+    region: str = ""
+
+
+@router.post("/api/vote-regional")
+async def api_vote_regional(req: VoteRegionalRequest, request: Request):
+    if req.vote not in (1, -1):
+        raise HTTPException(status_code=422, detail="vote phải là 1 hoặc -1")
+    device_id = _get_device_id(request)
+    region = req.region.strip() or get_user_region(device_id)
+    save_answer_vote(req.submission_id, req.question, region, req.vote, device_id)
+    return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Expert apply
+# ---------------------------------------------------------------------------
+
+class ExpertApplyRequest(BaseModel):
+    name: str
+    specialty: str = ""
+
+
+@router.post("/api/expert-apply")
+async def api_expert_apply(req: ExpertApplyRequest, request: Request):
+    if len(req.name.strip()) < 2:
+        raise HTTPException(status_code=422, detail="Tên phải có ít nhất 2 ký tự")
+    device_id = _get_device_id(request)
+    ok = apply_expert(device_id, req.name.strip(), req.specialty.strip())
+    return JSONResponse({"ok": ok, "message": "Đã gửi đơn đăng ký chuyên gia. Admin sẽ xem xét sớm."})
+
+
+@router.get("/api/expert-status")
+async def api_expert_status(request: Request):
+    device_id = _get_device_id(request)
+    status = get_expert_status(device_id)
+    return JSONResponse(status or {"status": "none"})
+
+
+# ---------------------------------------------------------------------------
+# Disease reports
+# ---------------------------------------------------------------------------
+
+class DiseaseReportRequest(BaseModel):
+    disease: str
+    severity: str = "medium"  # low | medium | high
+    province: str = ""
+    region: str = ""
+    lat: float = 0.0
+    lon: float = 0.0
+    note: str = ""
+
+
+@router.post("/api/disease-report")
+async def api_disease_report(req: DiseaseReportRequest, request: Request):
+    if not req.disease.strip():
+        raise HTTPException(status_code=422, detail="Tên bệnh/sâu không được để trống")
+    if req.severity not in ("low", "medium", "high"):
+        raise HTTPException(status_code=422, detail="severity phải là low, medium hoặc high")
+
+    device_id = _get_device_id(request)
+    today = _dt.now().strftime("%Y-%m-%d")
+
+    # Rate limit: tối đa 3 reports/ngày/device
+    if not check_and_increment_rate(device_id, "disease_report", today, 3):
+        raise HTTPException(status_code=429, detail="Bạn đã báo cáo 3 lần hôm nay. Vui lòng thử lại vào ngày mai.")
+
+    region = req.region.strip() or get_user_region(device_id)
+    report_id = save_disease_report(
+        device_id=device_id,
+        disease=req.disease.strip(),
+        severity=req.severity,
+        province=req.province.strip(),
+        region=region,
+        lat=req.lat,
+        lon=req.lon,
+        note=req.note.strip(),
+    )
+
+    # Thưởng 3 điểm khi báo cáo
+    pts = add_points(device_id, "disease_report", 3, daily_limit=3)
+    return JSONResponse({"ok": True, "id": report_id, **_pts_response(pts)})
+
+
+@router.get("/api/disease-map")
+async def api_disease_map():
+    """Grouped by province+disease, 30 ngày gần nhất."""
+    return JSONResponse({"data": get_disease_map(days=30)})

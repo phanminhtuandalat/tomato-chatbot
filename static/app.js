@@ -141,6 +141,19 @@ function _appendFeedback(msgId, text, question, submissionId, showActiveFeedback
     if (submissionId) fbRow.dataset.submissionId = submissionId;
     messagesEl.appendChild(fbRow);
   }
+  // Nút vote vùng — chỉ hiện khi có câu hỏi và user đã chọn vùng
+  if (question && userRegion) {
+    const voteRow = document.createElement('div');
+    voteRow.className = 'vote-regional-row';
+    voteRow.id = `vote-${msgId}`;
+    voteRow.innerHTML = `
+      <span class="vote-label">Phù hợp với vùng bà con?</span>
+      <button class="vote-btn vote-yes" onclick="sendRegionalVote('${msgId}', 1)">👍 Đúng vùng tôi</button>
+      <button class="vote-btn vote-no"  onclick="sendRegionalVote('${msgId}', -1)">🔄 Khác vùng tôi</button>`;
+    voteRow.dataset.question = question;
+    if (submissionId) voteRow.dataset.submissionId = submissionId;
+    messagesEl.appendChild(voteRow);
+  }
   scrollBottom();
 }
 
@@ -631,6 +644,8 @@ updateQuota();
 
 if (localStorage.getItem('region') || localStorage.getItem('region-skipped')) {
   document.getElementById('shareTipBtn').style.display = 'flex';
+  document.getElementById('diseaseReportBtn').style.display = 'flex';
+  document.getElementById('expertApplyBtn').style.display = 'flex';
   firstMessageSent = true;
 }
 
@@ -733,6 +748,8 @@ async function newSession() {
   messagesEl.appendChild(sep);
   firstMessageSent = false;
   document.getElementById('shareTipBtn').style.display = 'none';
+  document.getElementById('diseaseReportBtn').style.display = 'none';
+  document.getElementById('expertApplyBtn').style.display = 'none';
 }
 
 /* ── Gửi tin nhắn ── */
@@ -790,6 +807,8 @@ async function sendMessage() {
         if (!firstMessageSent) {
           firstMessageSent = true;
           document.getElementById('shareTipBtn').style.display = 'flex';
+          document.getElementById('diseaseReportBtn').style.display = 'flex';
+          document.getElementById('expertApplyBtn').style.display = 'flex';
           if (!userRegion && !localStorage.getItem('region-skipped'))
             setTimeout(() => openRegionModal(), 1500);
         }
@@ -812,3 +831,163 @@ async function sendMessage() {
     inputEl.focus();
   }
 }
+
+/* ── Vote vùng ── */
+async function sendRegionalVote(msgId, vote) {
+  const row = document.getElementById(`vote-${msgId}`);
+  if (!row) return;
+  row.querySelectorAll('.vote-btn').forEach(b => b.disabled = true);
+  const btn = row.querySelector(vote === 1 ? '.vote-yes' : '.vote-no');
+  if (btn) btn.classList.add('voted');
+  const submissionId = row.dataset.submissionId ? parseInt(row.dataset.submissionId) : null;
+  try {
+    await fetch('/api/vote-regional', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ submission_id: submissionId, question: row.dataset.question || '', vote, region: userRegion }),
+    });
+  } catch {}
+  setTimeout(() => { row.style.display = 'none'; }, 800);
+}
+
+/* ── Disease report ── */
+function openDiseaseModal() {
+  document.getElementById('diseaseSelect').value = '';
+  document.getElementById('diseaseOther').style.display = 'none';
+  document.getElementById('diseaseOther').value = '';
+  document.getElementById('diseaseSeverity').value = 'medium';
+  document.getElementById('diseaseProvince').value = '';
+  document.getElementById('diseaseNote').value = '';
+  document.getElementById('diseaseMsgEl').textContent = '';
+  document.getElementById('diseaseOverlay').classList.add('show');
+}
+function closeDiseaseModal() { document.getElementById('diseaseOverlay').classList.remove('show'); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const ds = document.getElementById('diseaseSelect');
+  if (ds) ds.addEventListener('change', () => {
+    document.getElementById('diseaseOther').style.display = ds.value === 'Khác' ? 'block' : 'none';
+  });
+});
+
+async function submitDiseaseReport() {
+  const selectEl   = document.getElementById('diseaseSelect');
+  const diseaseRaw = selectEl.value;
+  const disease    = diseaseRaw === 'Khác'
+    ? document.getElementById('diseaseOther').value.trim()
+    : diseaseRaw;
+  const severity   = document.getElementById('diseaseSeverity').value;
+  const province   = document.getElementById('diseaseProvince').value.trim();
+  const note       = document.getElementById('diseaseNote').value.trim();
+  const msgEl      = document.getElementById('diseaseMsgEl');
+
+  if (!disease) { msgEl.style.color = '#ef5350'; msgEl.textContent = 'Vui lòng chọn hoặc nhập tên bệnh/sâu'; return; }
+  msgEl.style.color = '#888'; msgEl.textContent = 'Đang gửi...';
+
+  try {
+    const res = await fetch('/api/disease-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disease, severity, province, region: userRegion, lat: userLat, lon: userLon, note }),
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      msgEl.style.color = '#2e7d32';
+      msgEl.textContent = '✓ Báo cáo đã gửi! Cảm ơn bà con.';
+      if (data.points) showBonusToast(data.points, data.questions_added || 0, 'feedback', data.current_points, 20);
+      setTimeout(closeDiseaseModal, 2500);
+    } else {
+      msgEl.style.color = '#ef5350';
+      msgEl.textContent = '✗ ' + (data.detail || data.error || 'Lỗi gửi báo cáo');
+    }
+  } catch { msgEl.style.color = '#ef5350'; msgEl.textContent = '✗ Lỗi kết nối'; }
+}
+
+/* ── Expert apply ── */
+function openExpertModal() {
+  document.getElementById('expertName').value = '';
+  document.getElementById('expertSpecialty').value = '';
+  document.getElementById('expertMsgEl').textContent = '';
+  document.getElementById('expertOverlay').classList.add('show');
+  setTimeout(() => document.getElementById('expertName').focus(), 100);
+}
+function closeExpertModal() { document.getElementById('expertOverlay').classList.remove('show'); }
+
+async function submitExpertApply() {
+  const name      = document.getElementById('expertName').value.trim();
+  const specialty = document.getElementById('expertSpecialty').value.trim();
+  const msgEl     = document.getElementById('expertMsgEl');
+  if (name.length < 2) { msgEl.style.color = '#ef5350'; msgEl.textContent = 'Vui lòng nhập họ tên'; return; }
+  msgEl.style.color = '#888'; msgEl.textContent = 'Đang gửi...';
+  try {
+    const res  = await fetch('/api/expert-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, specialty }) });
+    const data = await res.json();
+    msgEl.style.color = '#2e7d32';
+    msgEl.textContent = '✓ ' + (data.message || 'Đã gửi đơn đăng ký!');
+    setTimeout(closeExpertModal, 2500);
+  } catch { msgEl.style.color = '#ef5350'; msgEl.textContent = '✗ Lỗi kết nối'; }
+}
+
+/* ── Leaderboard ── */
+let _leaderboardLoaded = false;
+async function loadLeaderboard() {
+  if (_leaderboardLoaded) return;
+  try {
+    const res  = await fetch('/api/leaderboard');
+    if (!res.ok) return;
+    const { leaderboard } = await res.json();
+    if (!leaderboard?.length) return;
+    _leaderboardLoaded = true;
+
+    // Top 5 widget
+    const top5El = document.getElementById('leaderboardTop5');
+    if (top5El) {
+      top5El.innerHTML = leaderboard.slice(0, 5).map(u =>
+        `<div class="lw-item"><span class="lw-rank">#${u.rank}</span><span class="lw-id">${u.device_id_masked}</span><span class="lw-pts">⭐${u.total_earned}</span></div>`
+      ).join('');
+      document.getElementById('leaderboardWidget').style.display = 'block';
+    }
+
+    // Full list trong modal
+    const listEl = document.getElementById('leaderboardList');
+    if (listEl) {
+      listEl.innerHTML = leaderboard.map(u =>
+        `<div class="lb-row"><span class="lb-rank">#${u.rank}</span><span class="lb-id">${u.device_id_masked}</span><span class="lb-pts">⭐ ${u.total_earned} điểm</span></div>`
+      ).join('');
+    }
+  } catch {}
+}
+
+function openLeaderboardModal() {
+  document.getElementById('leaderboardOverlay').classList.add('show');
+}
+function closeLeaderboardModal() { document.getElementById('leaderboardOverlay').classList.remove('show'); }
+
+/* ── Mission banner ── */
+let _activeMission = null;
+async function loadMissions() {
+  try {
+    const res = await fetch('/api/missions');
+    if (!res.ok) return;
+    const { missions } = await res.json();
+    const active = missions?.find(m => m.status === 'active');
+    if (!active) return;
+    _activeMission = active;
+    document.getElementById('missionTitle').textContent = `Nhiệm vụ: ${active.title} — Thưởng ${active.reward_points} điểm`;
+    document.getElementById('missionProgress').textContent = `${active.current_count}/${active.target_count} đóng góp`;
+    document.getElementById('missionBanner').style.display = 'flex';
+  } catch {}
+}
+function closeMissionBanner() { document.getElementById('missionBanner').style.display = 'none'; }
+function joinMission() {
+  closeMissionBanner();
+  // Scroll xuống form tip và điền topic vào tiêu đề
+  openTipModal();
+  if (_activeMission?.topic) {
+    document.getElementById('tipTitle').value = _activeMission.topic;
+  }
+}
+
+// Khởi động — load leaderboard và missions 1 lần
+loadLeaderboard();
+loadMissions();

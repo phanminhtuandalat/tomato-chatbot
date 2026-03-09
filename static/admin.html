@@ -292,6 +292,45 @@
     <div id="imageDatasetList"><div class="empty">Đang tải...</div></div>
   </div>
 
+  <!-- Quản lý Chuyên gia -->
+  <div class="card">
+    <h2>🎓 Quản lý Chuyên gia</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">Danh sách đơn đăng ký chuyên gia từ người dùng.</p>
+    <div id="expertList"><div class="empty">Đang tải...</div></div>
+  </div>
+
+  <!-- Nhiệm vụ cộng đồng -->
+  <div class="card">
+    <h2>🎯 Nhiệm vụ cộng đồng</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:12px;">Tạo nhiệm vụ để khuyến khích cộng đồng chia sẻ kinh nghiệm về chủ đề cụ thể.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+      <input type="text" id="missionTitle" placeholder="Tiêu đề nhiệm vụ" style="border:1.5px solid #c8e6c9;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;" />
+      <input type="text" id="missionTopic" placeholder="Từ khoá (vd: mốc sương, bọ trĩ)" style="border:1.5px solid #c8e6c9;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;" />
+      <input type="text" id="missionDesc" placeholder="Mô tả (tuỳ chọn)" style="grid-column:1/-1;border:1.5px solid #c8e6c9;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;" />
+      <input type="number" id="missionRewardPts" placeholder="Thưởng (điểm)" value="10" style="border:1.5px solid #c8e6c9;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;" />
+      <input type="number" id="missionTarget" placeholder="Số đóng góp cần" value="5" style="border:1.5px solid #c8e6c9;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;" />
+      <input type="date" id="missionExpires" placeholder="Hết hạn (tuỳ chọn)" style="grid-column:1/-1;border:1.5px solid #c8e6c9;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;" />
+    </div>
+    <button class="btn" onclick="createMission()" style="margin-bottom:16px;">Tạo nhiệm vụ</button>
+    <div id="missionCreateMsg" style="font-size:13px;margin-bottom:12px;"></div>
+    <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:8px;">Tất cả nhiệm vụ</div>
+    <div id="missionList"><div class="empty">Đang tải...</div></div>
+  </div>
+
+  <!-- Báo cáo dịch bệnh -->
+  <div class="card">
+    <h2>🦠 Báo cáo dịch bệnh</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">Báo cáo từ cộng đồng về tình hình sâu bệnh theo vùng.</p>
+    <div id="diseaseReportList"><div class="empty">Đang tải...</div></div>
+  </div>
+
+  <!-- Gap theo vùng -->
+  <div class="card">
+    <h2>🗺️ Khoảng trống kiến thức theo vùng</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">Chủ đề được hỏi nhiều nhưng KB chưa cover, phân theo vùng địa lý.</p>
+    <div id="gapByRegionList"><div class="empty">Đang tải...</div></div>
+  </div>
+
   <!-- Feedback -->
   <div class="card">
     <h2>📊 Đánh giá từ nông dân</h2>
@@ -315,6 +354,6 @@
   </div>
 </div>
 
-<script src="/static/admin.js?v=20260308_b"></script>
+<script src="/static/admin.js?v=20260308_c"></script>
 </body>
 </html>

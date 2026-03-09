@@ -167,6 +167,69 @@ def init_db() -> None:
                 PRIMARY KEY (key, type, date)
             )
         """)
+        # ── Bảng chuyên gia ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS expert_users (
+                device_id   TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                specialty   TEXT DEFAULT '',
+                status      TEXT DEFAULT 'pending',
+                applied_at  TEXT,
+                approved_at TEXT
+            )
+        """)
+        # ── Bảng vote vùng ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS answer_votes (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                submission_id INTEGER,
+                question      TEXT,
+                region        TEXT,
+                vote          INTEGER,
+                device_id     TEXT,
+                ts            TEXT
+            )
+        """)
+        # ── Bảng nhiệm vụ cộng đồng ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS community_missions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                title           TEXT    NOT NULL,
+                description     TEXT,
+                topic           TEXT,
+                reward_points   INTEGER DEFAULT 10,
+                reward_questions INTEGER DEFAULT 0,
+                target_count    INTEGER DEFAULT 5,
+                current_count   INTEGER DEFAULT 0,
+                status          TEXT    DEFAULT 'active',
+                expires_at      TEXT,
+                created_at      TEXT
+            )
+        """)
+        # ── Bảng báo cáo dịch bệnh ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS disease_reports (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT,
+                disease  TEXT    NOT NULL,
+                severity TEXT    DEFAULT 'medium',
+                province TEXT    DEFAULT '',
+                region   TEXT    DEFAULT '',
+                lat      REAL    DEFAULT 0,
+                lon      REAL    DEFAULT 0,
+                note     TEXT    DEFAULT '',
+                ts       TEXT,
+                verified INTEGER DEFAULT 0
+            )
+        """)
+        # Migration: thêm cột region vào questions nếu chưa có
+        for col in [
+            "ALTER TABLE questions ADD COLUMN region TEXT DEFAULT ''",
+        ]:
+            try:
+                conn.execute(col)
+            except Exception:
+                pass
 
 
 @contextmanager
@@ -329,14 +392,6 @@ def get_all_subscriptions() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute("SELECT endpoint, p256dh, auth FROM push_subscriptions").fetchall()
     return [dict(r) for r in rows]
-
-
-def save_question(ts: str, question: str, has_image: bool = False) -> None:
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO questions (ts, question, has_image) VALUES (?, ?, ?)",
-            (ts, question[:500], 1 if has_image else 0),
-        )
 
 
 def get_analytics() -> dict:
@@ -771,6 +826,332 @@ def get_evolution_stats() -> dict:
         "total_cycles": total_cycles,
         "last_cycle":   last_cycle["ts"] if last_cycle else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Correction consensus — tự động thêm vào KB khi nhiều người sửa cùng chủ đề
+# ---------------------------------------------------------------------------
+
+def check_correction_consensus(topic_hash: str, threshold: int = 3) -> bool:
+    """
+    Đếm số corrections có cùng topic_hash (hash của question).
+    Nếu >= threshold thì trả về True — caller sẽ auto-approve vào KB.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM community_tips WHERE category='correction' AND SUBSTR(title, 1, 100)=? AND status!='rejected'",
+            (topic_hash[:100],),
+        ).fetchone()
+    return row[0] >= threshold
+
+
+def get_most_common_correction(topic_hash: str) -> dict | None:
+    """Lấy nội dung correction phổ biến nhất cho topic (dùng khi consensus đạt ngưỡng)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, title, content, device_id FROM community_tips WHERE category='correction' AND SUBSTR(title, 1, 100)=? AND status!='rejected' ORDER BY id DESC LIMIT 1",
+            (topic_hash[:100],),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Gap analysis by region
+# ---------------------------------------------------------------------------
+
+def save_question(ts: str, question: str, has_image: bool = False, region: str = "") -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO questions (ts, question, has_image, region) VALUES (?, ?, ?, ?)",
+            (ts, question[:500], 1 if has_image else 0, region),
+        )
+
+
+def get_gap_by_region() -> dict:
+    """
+    Phân tích câu hỏi theo vùng — tìm chủ đề được hỏi nhiều nhất mỗi vùng.
+    Trả về {region: [{phrase, count}]}.
+    """
+    import unicodedata, re
+    from app.services.rag import rag
+
+    stop = {"tôi","bị","như","thế","nào","là","có","và","của","để","cho","khi",
+            "với","trong","từ","đến","được","một","này","không","hay","gì",
+            "về","cần","làm","sao","ra","vì","thì","mà","đã","đang","sẽ",
+            "ạ","ơi","vậy","nhé","bao","lâu","phải"}
+    _pat = re.compile(
+        r"[a-zàáảãạăắặẳẵằâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ]+"
+    )
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT question, region FROM questions WHERE region != '' ORDER BY id DESC LIMIT 10000"
+        ).fetchall()
+
+    # Gom theo vùng
+    region_phrases: dict[str, dict[str, int]] = {}
+    for r in rows:
+        rg = r["region"]
+        if not rg:
+            continue
+        if rg not in region_phrases:
+            region_phrases[rg] = {}
+        text = unicodedata.normalize("NFC", r["question"].lower())
+        words = [w for w in _pat.findall(text) if len(w) >= 3 and w not in stop]
+        for w in words:
+            if len(w) >= 4:
+                region_phrases[rg][w] = region_phrases[rg].get(w, 0) + 1
+        for i in range(len(words) - 1):
+            if words[i] not in stop and words[i+1] not in stop:
+                bigram = f"{words[i]} {words[i+1]}"
+                region_phrases[rg][bigram] = region_phrases[rg].get(bigram, 0) + 1
+
+    result = {}
+    for rg, freq in region_phrases.items():
+        top = sorted(freq.items(), key=lambda x: -x[1])[:10]
+        gaps = []
+        for phrase, count in top:
+            if count < 2:
+                continue
+            ctx = rag.search(phrase, top_k=1)
+            covered = bool(ctx and len(ctx) > 100)
+            if not covered:
+                gaps.append({"phrase": phrase, "count": count})
+            if len(gaps) >= 5:
+                break
+        if gaps:
+            result[rg] = gaps
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Expert tier
+# ---------------------------------------------------------------------------
+
+def apply_expert(device_id: str, name: str, specialty: str) -> bool:
+    from datetime import datetime
+    with get_conn() as conn:
+        try:
+            conn.execute("""
+                INSERT INTO expert_users (device_id, name, specialty, status, applied_at)
+                VALUES (?, ?, ?, 'pending', ?)
+                ON CONFLICT(device_id) DO UPDATE SET
+                    name=excluded.name, specialty=excluded.specialty,
+                    status='pending', applied_at=excluded.applied_at
+            """, (device_id, name[:100], specialty[:200],
+                  datetime.now().isoformat(timespec="seconds")))
+            return True
+        except Exception:
+            return False
+
+
+def approve_expert(device_id: str) -> bool:
+    from datetime import datetime
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE expert_users SET status='approved', approved_at=? WHERE device_id=?",
+            (datetime.now().isoformat(timespec="seconds"), device_id),
+        )
+    return cur.rowcount > 0
+
+
+def reject_expert(device_id: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE expert_users SET status='rejected' WHERE device_id=?", (device_id,)
+        )
+    return cur.rowcount > 0
+
+
+def get_expert_status(device_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT device_id, name, specialty, status, applied_at, approved_at FROM expert_users WHERE device_id=?",
+            (device_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_experts() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT device_id, name, specialty, status, applied_at, approved_at FROM expert_users ORDER BY applied_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def is_expert(device_id: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM expert_users WHERE device_id=? AND status='approved'", (device_id,)
+        ).fetchone()
+    return bool(row)
+
+
+# ---------------------------------------------------------------------------
+# Answer votes (vote vùng)
+# ---------------------------------------------------------------------------
+
+def save_answer_vote(submission_id: int | None, question: str, region: str, vote: int, device_id: str) -> None:
+    from datetime import datetime
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO answer_votes (submission_id, question, region, vote, device_id, ts) VALUES (?,?,?,?,?,?)",
+            (submission_id, question[:500], region, vote, device_id,
+             datetime.now().isoformat(timespec="seconds")),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Community missions
+# ---------------------------------------------------------------------------
+
+def get_active_missions() -> list[dict]:
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM community_missions WHERE status='active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC",
+            (now,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_mission(title: str, description: str, topic: str,
+                   reward_points: int, reward_questions: int,
+                   target_count: int, expires_at: str | None) -> int:
+    from datetime import datetime
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO community_missions (title, description, topic, reward_points, reward_questions, target_count, expires_at, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (title, description, topic, reward_points, reward_questions,
+             target_count, expires_at, datetime.now().isoformat(timespec="seconds")),
+        )
+        return cur.lastrowid
+
+
+def increment_mission_progress(mission_id: int) -> bool:
+    """Tăng current_count, trả về True nếu đã đủ target_count (cần complete_mission)."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE community_missions SET current_count=current_count+1 WHERE id=? AND status='active'",
+            (mission_id,),
+        )
+        row = conn.execute(
+            "SELECT current_count, target_count FROM community_missions WHERE id=?",
+            (mission_id,),
+        ).fetchone()
+    if row and row["current_count"] >= row["target_count"]:
+        return True
+    return False
+
+
+def complete_mission(mission_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE community_missions SET status='completed' WHERE id=?", (mission_id,)
+        )
+
+
+def list_all_missions() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM community_missions ORDER BY created_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Disease reports
+# ---------------------------------------------------------------------------
+
+def save_disease_report(device_id: str, disease: str, severity: str,
+                        province: str, region: str, lat: float, lon: float, note: str) -> int:
+    from datetime import datetime
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO disease_reports (device_id, disease, severity, province, region, lat, lon, note, ts) VALUES (?,?,?,?,?,?,?,?,?)",
+            (device_id, disease[:200], severity, province[:100], region,
+             lat, lon, note[:500], datetime.now().isoformat(timespec="seconds")),
+        )
+        return cur.lastrowid
+
+
+def get_disease_reports(days: int = 30) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM disease_reports WHERE ts >= datetime('now', ?) ORDER BY id DESC",
+            (f"-{days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_disease_hotspots(days: int = 7) -> list[dict]:
+    """Lấy các bệnh đang bùng phát: grouped by province+disease, đếm reports >= 2."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT disease, province, region, COUNT(*) as count
+            FROM disease_reports
+            WHERE ts >= datetime('now', ?)
+            GROUP BY disease, province
+            HAVING count >= 2
+            ORDER BY count DESC
+            LIMIT 20
+            """,
+            (f"-{days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def verify_disease_report(report_id: int) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE disease_reports SET verified=1 WHERE id=?", (report_id,)
+        )
+    return cur.rowcount > 0
+
+
+def get_disease_map(days: int = 30) -> list[dict]:
+    """Grouped by province+disease, dùng cho API disease-map."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT disease, province, region, COUNT(*) as count,
+                   SUM(CASE WHEN severity='high' THEN 1 ELSE 0 END) as high_count
+            FROM disease_reports
+            WHERE ts >= datetime('now', ?)
+            GROUP BY disease, province
+            ORDER BY count DESC
+            """,
+            (f"-{days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard
+# ---------------------------------------------------------------------------
+
+def get_leaderboard(limit: int = 10) -> list[dict]:
+    """Top users theo total_earned điểm — ẩn device_id, chỉ hiện 4 ký tự cuối."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT device_id, total_earned, questions_earned FROM user_points ORDER BY total_earned DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    result = []
+    for i, r in enumerate(rows):
+        did = r["device_id"]
+        masked = "****" + did[-4:] if len(did) >= 4 else "****"
+        result.append({
+            "rank":          i + 1,
+            "device_id_masked": masked,
+            "total_earned":  r["total_earned"],
+            "questions_added": r["questions_earned"],
+        })
+    return result
 
 
 def save_feedback(ts: str, rating: int, question: str, answer: str) -> None:

@@ -17,6 +17,10 @@ from app.database import (
     get_feedback_stats, get_analytics, create_premium_code, list_premium_codes,
     get_flywheel_data, get_review_tips, approve_tip, reject_tip, get_image_submissions,
     get_tip_device_id, add_points, get_evolution_history, get_evolution_stats,
+    list_experts, approve_expert, reject_expert,
+    create_mission, list_all_missions,
+    get_disease_reports, verify_disease_report,
+    get_gap_by_region,
 )
 from app.services import rag as rag_module
 from app.services.embeddings import index_document, EMBED_ENABLED
@@ -591,3 +595,83 @@ async def test_notify(_: None = Depends(require_admin)):
 @router.get("/admin/image-submissions")
 async def image_submissions(_: None = Depends(require_admin)):
     return JSONResponse({"submissions": get_image_submissions()})
+
+
+# ---------------------------------------------------------------------------
+# Quản lý chuyên gia
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/experts")
+async def admin_list_experts(_: None = Depends(require_admin)):
+    return JSONResponse({"experts": list_experts()})
+
+
+@router.post("/admin/expert-approve/{device_id}")
+async def admin_approve_expert(device_id: str, _: None = Depends(require_admin)):
+    ok = approve_expert(device_id)
+    return JSONResponse({"ok": ok})
+
+
+@router.post("/admin/expert-reject/{device_id}")
+async def admin_reject_expert(device_id: str, _: None = Depends(require_admin)):
+    ok = reject_expert(device_id)
+    return JSONResponse({"ok": ok})
+
+
+# ---------------------------------------------------------------------------
+# Nhiệm vụ cộng đồng
+# ---------------------------------------------------------------------------
+
+class MissionRequest(BaseModel):
+    title: str
+    description: str = ""
+    topic: str = ""
+    reward_points: int = 10
+    reward_questions: int = 0
+    target_count: int = 5
+    expires_at: str | None = None
+
+
+@router.post("/admin/mission")
+async def admin_create_mission(req: MissionRequest, _: None = Depends(require_admin)):
+    if not req.title.strip():
+        raise HTTPException(status_code=422, detail="Tiêu đề không được để trống")
+    mission_id = create_mission(
+        title=req.title.strip(),
+        description=req.description.strip(),
+        topic=req.topic.strip(),
+        reward_points=req.reward_points,
+        reward_questions=req.reward_questions,
+        target_count=max(1, req.target_count),
+        expires_at=req.expires_at,
+    )
+    return JSONResponse({"ok": True, "id": mission_id})
+
+
+@router.get("/admin/missions")
+async def admin_list_missions(_: None = Depends(require_admin)):
+    return JSONResponse({"missions": list_all_missions()})
+
+
+# ---------------------------------------------------------------------------
+# Báo cáo dịch bệnh
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/disease-reports")
+async def admin_disease_reports(days: int = 30, _: None = Depends(require_admin)):
+    return JSONResponse({"reports": get_disease_reports(days=days)})
+
+
+@router.post("/admin/disease-report/{report_id}/verify")
+async def admin_verify_disease_report(report_id: int, _: None = Depends(require_admin)):
+    ok = verify_disease_report(report_id)
+    return JSONResponse({"ok": ok})
+
+
+# ---------------------------------------------------------------------------
+# Gap theo vùng
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/gap-by-region")
+async def admin_gap_by_region(_: None = Depends(require_admin)):
+    return JSONResponse({"gap_by_region": get_gap_by_region()})

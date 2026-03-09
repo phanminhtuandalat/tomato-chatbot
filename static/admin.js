@@ -775,6 +775,156 @@ async function saveKbArticle() {
   }
 }
 
+// ── Quản lý Chuyên gia ───────────────────────────────────────────────────────
+
+async function loadExperts() {
+  const el = document.getElementById('expertList');
+  if (!el) return;
+  try {
+    const res  = await fetch('/admin/experts');
+    const data = await res.json();
+    const experts = data.experts || [];
+    if (!experts.length) { el.innerHTML = '<div class="empty">Chưa có đơn đăng ký nào</div>'; return; }
+    const statusLabel = { pending: '⏳ Chờ duyệt', approved: '✅ Đã duyệt', rejected: '❌ Từ chối' };
+    el.innerHTML = experts.map(e => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#f9f9f9;border-radius:8px;margin-bottom:8px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;">${e.name}</div>
+          <div style="font-size:12px;color:#666;">${e.specialty || 'Không có chuyên môn'}</div>
+          <div style="font-size:11px;color:#999;">ID: ${e.device_id.slice(0,12)}… · ${statusLabel[e.status] || e.status} · ${e.applied_at?.slice(0,10) || ''}</div>
+        </div>
+        ${e.status === 'pending' ? `
+          <button onclick="expertAction('${e.device_id}','approve')" style="padding:5px 12px;border:none;border-radius:12px;background:#2e7d32;color:white;font-size:12px;cursor:pointer;">Duyệt</button>
+          <button onclick="expertAction('${e.device_id}','reject')" style="padding:5px 12px;border:none;border-radius:12px;background:#ef5350;color:white;font-size:12px;cursor:pointer;">Từ chối</button>
+        ` : ''}
+      </div>
+    `).join('');
+  } catch { el.innerHTML = '<div class="empty">Lỗi tải dữ liệu</div>'; }
+}
+
+async function expertAction(deviceId, action) {
+  try {
+    const res  = await fetch(`/admin/expert-${action}/${encodeURIComponent(deviceId)}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) { writeLog(`Chuyên gia ${action === 'approve' ? 'đã duyệt' : 'đã từ chối'}`); loadExperts(); }
+  } catch (e) { alert('Lỗi: ' + e.message); }
+}
+
+// ── Nhiệm vụ cộng đồng ───────────────────────────────────────────────────────
+
+async function createMission() {
+  const title   = document.getElementById('missionTitle').value.trim();
+  const topic   = document.getElementById('missionTopic').value.trim();
+  const desc    = document.getElementById('missionDesc').value.trim();
+  const pts     = parseInt(document.getElementById('missionRewardPts').value) || 10;
+  const target  = parseInt(document.getElementById('missionTarget').value) || 5;
+  const expires = document.getElementById('missionExpires').value || null;
+  const msgEl   = document.getElementById('missionCreateMsg');
+
+  if (!title) { msgEl.style.color = '#ef5350'; msgEl.textContent = 'Tiêu đề không được để trống'; return; }
+  msgEl.style.color = '#888'; msgEl.textContent = 'Đang tạo...';
+
+  try {
+    const res  = await fetch('/admin/mission', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, description: desc, topic, reward_points: pts, target_count: target, expires_at: expires }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      msgEl.style.color = '#2e7d32';
+      msgEl.textContent = `✓ Đã tạo nhiệm vụ #${data.id}`;
+      loadMissions();
+    } else {
+      msgEl.style.color = '#ef5350';
+      msgEl.textContent = '✗ ' + (data.detail || 'Lỗi tạo nhiệm vụ');
+    }
+  } catch (e) { msgEl.style.color = '#ef5350'; msgEl.textContent = '✗ ' + e.message; }
+}
+
+async function loadMissions() {
+  const el = document.getElementById('missionList');
+  if (!el) return;
+  try {
+    const res  = await fetch('/admin/missions');
+    const data = await res.json();
+    const missions = data.missions || [];
+    if (!missions.length) { el.innerHTML = '<div class="empty">Chưa có nhiệm vụ nào</div>'; return; }
+    const statusLabel = { active: '🟢 Đang hoạt động', completed: '✅ Hoàn thành', expired: '⏰ Hết hạn' };
+    el.innerHTML = missions.map(m => `
+      <div style="padding:10px;background:#f9f9f9;border-radius:8px;margin-bottom:8px;font-size:13px;">
+        <div style="font-weight:600;">${m.title} <span style="font-size:11px;font-weight:400;">${statusLabel[m.status] || m.status}</span></div>
+        <div style="color:#666;font-size:12px;margin-top:2px;">${m.description || ''}</div>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Chủ đề: ${m.topic || '—'} · Tiến độ: ${m.current_count}/${m.target_count} · Thưởng: ${m.reward_points} điểm${m.expires_at ? ` · Hết hạn: ${m.expires_at.slice(0,10)}` : ''}</div>
+      </div>
+    `).join('');
+  } catch { el.innerHTML = '<div class="empty">Lỗi tải dữ liệu</div>'; }
+}
+
+// ── Báo cáo dịch bệnh ────────────────────────────────────────────────────────
+
+async function loadDiseaseReports() {
+  const el = document.getElementById('diseaseReportList');
+  if (!el) return;
+  try {
+    const res  = await fetch('/admin/disease-reports?days=30');
+    const data = await res.json();
+    const reports = data.reports || [];
+    if (!reports.length) { el.innerHTML = '<div class="empty">Chưa có báo cáo nào trong 30 ngày</div>'; return; }
+    const sevLabel = { low: '🟡 Nhẹ', medium: '🟠 Trung bình', high: '🔴 Nặng' };
+    el.innerHTML = reports.map(r => `
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:10px;background:#f9f9f9;border-radius:8px;margin-bottom:8px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;">${r.disease} ${sevLabel[r.severity] || r.severity}</div>
+          <div style="font-size:12px;color:#666;">${r.province || '—'} (${r.region || '—'})</div>
+          <div style="font-size:11px;color:#999;">${r.note || ''} · ${r.ts?.slice(0,16) || ''} ${r.verified ? '✅ Đã xác nhận' : ''}</div>
+        </div>
+        ${!r.verified ? `<button onclick="verifyReport(${r.id})" style="padding:4px 10px;border:none;border-radius:10px;background:#2e7d32;color:white;font-size:11px;cursor:pointer;">Xác nhận</button>` : ''}
+      </div>
+    `).join('');
+  } catch { el.innerHTML = '<div class="empty">Lỗi tải dữ liệu</div>'; }
+}
+
+async function verifyReport(id) {
+  try {
+    const res  = await fetch(`/admin/disease-report/${id}/verify`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) { writeLog(`Đã xác nhận báo cáo #${id}`); loadDiseaseReports(); }
+  } catch (e) { alert('Lỗi: ' + e.message); }
+}
+
+// ── Gap theo vùng ─────────────────────────────────────────────────────────────
+
+const REGION_VI = {
+  mekong: 'ĐBSCL', southeast: 'Đông Nam Bộ', central_highland: 'Tây Nguyên',
+  south_central: 'Nam Trung Bộ', north_central: 'Bắc Trung Bộ',
+  red_river: 'ĐB Sông Hồng', northeast: 'Trung du Bắc Bộ', northwest: 'Tây Bắc',
+};
+
+async function loadGapByRegion() {
+  const el = document.getElementById('gapByRegionList');
+  if (!el) return;
+  try {
+    const res  = await fetch('/admin/gap-by-region');
+    const data = await res.json();
+    const gapMap = data.gap_by_region || {};
+    const regions = Object.keys(gapMap);
+    if (!regions.length) { el.innerHTML = '<div class="empty">Chưa đủ dữ liệu hoặc KB đang cover tốt tất cả vùng</div>'; return; }
+    el.innerHTML = regions.map(rg => `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:6px;">📍 ${REGION_VI[rg] || rg}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${gapMap[rg].map(g => `
+            <span style="display:inline-flex;align-items:center;gap:4px;background:#fff3e0;border:1px solid #ffb74d;border-radius:12px;padding:3px 10px;font-size:12px;cursor:pointer;"
+              onclick="document.getElementById('aiTopicInput')?.value='${g.phrase}';document.getElementById('aiTopicInput')?.scrollIntoView({behavior:'smooth'})">
+              ${g.phrase} <span style="color:#e65100;font-weight:700;">${g.count}</span>
+            </span>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+  } catch { el.innerHTML = '<div class="empty">Lỗi tải dữ liệu</div>'; }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 loadDocs();
 loadEvolution();
@@ -785,3 +935,7 @@ loadFeedback();
 loadImageDataset();
 checkPushEnabled();
 loadCodes();
+loadExperts();
+loadMissions();
+loadDiseaseReports();
+loadGapByRegion();
