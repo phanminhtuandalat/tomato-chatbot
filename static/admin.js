@@ -125,6 +125,24 @@ async function loadDocs() {
   const list = document.getElementById('docList');
   document.getElementById('docCount').textContent = data.docs.length;
 
+  // Kiểm tra coverage vector index
+  try {
+    const es = await fetch('/admin/embed-status', { credentials: 'include' });
+    const ed = await es.json();
+    const statusEl = document.getElementById('reindexStatus');
+    if (ed.embed_enabled) {
+      const docCount = data.docs.length;
+      // Mỗi tài liệu trung bình ~3-5 chunks; nếu chunks < docs thì có file chưa được index
+      if (ed.indexed_chunks === 0 && docCount > 0) {
+        statusEl.style.color = '#ef5350';
+        statusEl.innerHTML = `<b>Cảnh báo:</b> ${docCount} tài liệu chưa được vector-index — nhấn Re-index`;
+      } else {
+        statusEl.style.color = '#888';
+        statusEl.textContent = `${ed.indexed_chunks} chunks đã index từ ${docCount} tài liệu`;
+      }
+    }
+  } catch {}
+
   if (!data.docs.length) {
     list.innerHTML = '<div class="empty">Chưa có tài liệu nào</div>';
     return;

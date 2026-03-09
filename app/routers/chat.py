@@ -77,7 +77,17 @@ async def _hybrid_search(question: str, top_k: int = 4) -> tuple[str, list[dict]
         if key not in chunk_store:
             chunk_store[key] = res  # vector result chưa có doc_title → dùng title
 
-    top_keys = sorted(rrf_scores, key=lambda k: -rrf_scores[k])[:top_k]
+    # Chọn top_k với giới hạn đa dạng nguồn (tối đa 2 chunks/nguồn)
+    MAX_PER_SRC = 2
+    src_count: dict[str, int] = {}
+    top_keys: list[str] = []
+    for key in sorted(rrf_scores, key=lambda k: -rrf_scores[k]):
+        src = chunk_store[key].get("source", key.split("::")[0])
+        if src_count.get(src, 0) < MAX_PER_SRC:
+            top_keys.append(key)
+            src_count[src] = src_count.get(src, 0) + 1
+        if len(top_keys) >= top_k:
+            break
 
     context_parts: list[str] = []
     seen_src: set[str] = set()
