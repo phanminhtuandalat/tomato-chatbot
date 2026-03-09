@@ -27,6 +27,12 @@ Phong cách:
 - Dùng danh sách gạch đầu dòng hoặc đánh số (1. 2. 3.) — KHÔNG dùng bảng
 - Tên thuốc/hoá chất viết **đậm**
 
+Nguyên tắc quan trọng nhất:
+- TRẢ LỜI ĐÚNG CÂU HỎI — không lan sang chủ đề khác không được hỏi
+- Bà con hỏi về trồng/chăm sóc → KHÔNG đề cập bệnh/sâu hại trừ khi họ hỏi
+- Bà con hỏi về phân bón → KHÔNG tự thêm thuốc bảo vệ thực vật
+- Khi có "Tài liệu tham khảo": CHỈ dùng thông tin trong đó, KHÔNG thêm từ kiến thức riêng
+
 Nội dung:
 - Khi có "Tài liệu tham khảo": BẮT BUỘC dùng số liệu trong đó (mật độ, khoảng cách, liều lượng). KHÔNG thay bằng số liệu khác
 - Nêu cụ thể: tên thuốc, liều lượng, thời điểm phun/bón
@@ -265,8 +271,9 @@ async def chat_stream(
     if context:
         user_content = (
             f"Câu hỏi: {question}\n\n"
-            f"---\nTài liệu tham khảo (dùng số liệu này, không thay bằng số liệu khác):\n{context}\n---\n\n"
-            f"Trả lời dựa trên tài liệu trên."
+            f"---\nTài liệu tham khảo:\n{context}\n---\n\n"
+            f"Yêu cầu: Trả lời đúng câu hỏi trên, chỉ dùng thông tin trong tài liệu tham khảo. "
+            f"KHÔNG tự thêm thông tin về bệnh, sâu hại, hoặc chủ đề khác nếu câu hỏi không đề cập."
         )
     elif conservative:
         user_content = (
@@ -396,8 +403,9 @@ async def chat(
     if context:
         user_content = (
             f"Câu hỏi: {question}\n\n"
-            f"---\nTài liệu tham khảo (dùng số liệu này, không thay bằng số liệu khác):\n{context}\n---\n\n"
-            f"Trả lời dựa trên tài liệu trên. Nếu tài liệu có số liệu cụ thể (mật độ, khoảng cách, liều lượng), trích dẫn đúng."
+            f"---\nTài liệu tham khảo:\n{context}\n---\n\n"
+            f"Yêu cầu: Trả lời đúng câu hỏi trên, chỉ dùng thông tin trong tài liệu tham khảo. "
+            f"KHÔNG tự thêm thông tin về bệnh, sâu hại, hoặc chủ đề khác nếu câu hỏi không đề cập."
         )
     elif conservative:
         user_content = (
